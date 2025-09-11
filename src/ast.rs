@@ -3,6 +3,23 @@
 use crate::lexer;
 use std::fmt;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TupleTag {
+    Nil,   // Default tag for single numbers
+    Rgba,  // RGBA color
+    Hsva,  // HSVA color
+    Ri,    // Complex number
+    Xy,    // Cartesian coordinates
+    Ra,    // Polar coordinates
+    V2,    // 2D vector
+    V3,    // 3D vector
+    M2x2,  // 2x2 matrix
+    M3x3,  // 3x3 matrix
+    Quat,  // Non-commutative quaternion
+    Cquat, // Commutative quaternion
+    Hyper, // Hypercomplex number
+}
+
 #[derive(Debug)]
 struct OpInfo {
     precedence: u8,
@@ -76,6 +93,10 @@ pub enum Expression {
     FloatConst {
         value: f32,
     },
+    TupleConst {
+        tag: TupleTag,
+        values: Vec<Expression>,
+    },
     FunctionCall {
         name: String,
         args: Vec<Expression>,
@@ -95,6 +116,10 @@ pub enum Expression {
     Index {
         expr: Box<Expression>,
         index: Box<Expression>,
+    },
+    Cast {
+        tag: TupleTag,
+        expr: Box<Expression>,
     },
 }
 
@@ -288,31 +313,38 @@ impl<'a> Parser<'a> {
                     };
                 }
                 Some(lexer::Token::Colon) => {
+                    self.expect(lexer::Token::Colon)?;
+                    // I guess we could make special tokens for the tuple tags since they're a fixed set, but for now
+                    // they're parsed as variables.
                     if let Expression::Variable { ref name } = expr {
-                        self.expect(lexer::Token::Colon)?;
-                        self.expect(lexer::Token::LBracket)?;
-                        let mut args = Vec::new();
-                        while self.tokens.peek() != Some(&lexer::Token::RBracket) {
-                            args.push(self.parse_expression(1)?);
-                            if self.tokens.peek() == Some(&lexer::Token::Comma) {
-                                self.tokens.next(); // consume ','
-                            } else {
-                                break;
+                        let tag = match name.as_str() {
+                            "rgba" => TupleTag::Rgba,
+                            "ri" => TupleTag::Ri,
+                            "xy" => TupleTag::Xy,
+                            _ => panic!("unknown tuple tag {:?}", name),
+                        };
+
+                        // Handle either tuple literals rgba:[1,2,3,4] or casts ri:xy.
+                        if self.tokens.peek() == Some(&lexer::Token::LBracket) {
+                            self.expect(lexer::Token::LBracket)?;
+                            let mut args = Vec::new();
+                            while self.tokens.peek() != Some(&lexer::Token::RBracket) {
+                                args.push(self.parse_expression(1)?);
+                                if self.tokens.peek() == Some(&lexer::Token::Comma) {
+                                    self.tokens.next(); // consume ','
+                                } else {
+                                    break;
+                                }
                             }
-                        }
-                        self.expect(lexer::Token::RBracket)?;
+                            self.expect(lexer::Token::RBracket)?;
 
-                        let fn_name = match name.as_str() {
-                            "rgba" => Ok("rgbaColor"),
-                            _ => Err(ParseError::new(format!(
-                                "Invalid cast: unknown tuple tag: {:?}",
-                                name
-                            ))),
-                        }?;
-
-                        expr = Expression::FunctionCall {
-                            name: fn_name.to_string(),
-                            args: args,
+                            expr = Expression::TupleConst { tag, values: args }
+                        } else {
+                            let rhs_expr = self.parse_expression(1)?;
+                            expr = Expression::Cast {
+                                tag,
+                                expr: Box::new(rhs_expr),
+                            }
                         }
                     } else {
                         return Err(ParseError::new(format!(
@@ -668,9 +700,9 @@ mod tests {
         let input = "rgba:[1,2,3,4]";
         let mut parser = Parser::new(input);
         let ast = parser.parse_expression(1).unwrap();
-        let ast_ref = Expression::FunctionCall {
-            name: "rgbaColor".to_string(),
-            args: vec![
+        let ast_ref = Expression::TupleConst {
+            tag: TupleTag::Rgba,
+            values: vec![
                 Expression::IntConst { value: 1 },
                 Expression::IntConst { value: 2 },
                 Expression::IntConst { value: 3 },

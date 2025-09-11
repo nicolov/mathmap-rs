@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::ast;
+use crate::ast::TupleTag;
 
 use core::panic;
 use std::collections::HashMap;
@@ -18,23 +19,6 @@ impl Value {
             Value::Int(_) => 1,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TupleTag {
-    Nil,   // Default tag for single numbers
-    Rgba,  // RGBA color
-    Hsva,  // HSVA color
-    Ri,    // Complex number
-    Xy,    // Cartesian coordinates
-    Ra,    // Polar coordinates
-    V2,    // 2D vector
-    V3,    // 3D vector
-    M2x2,  // 2x2 matrix
-    M3x3,  // 3x3 matrix
-    Quat,  // Non-commutative quaternion
-    Cquat, // Commutative quaternion
-    Hyper, // Hypercomplex number
 }
 
 #[derive(Debug, Clone)]
@@ -199,8 +183,13 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
             assert!(args.len() == 2);
             // Only supports scalar ints for now, should we promote floats?
             match (&args[0], &args[1]) {
-                (Value::Int(x), Value::Int(y)) => Value::Int(if *x != 0 || *y != 0 { 1 } else { 0 }),
-                _ => panic!("__or only supports int inputs, found {:?} and {:?}", args[0], args[1]),
+                (Value::Int(x), Value::Int(y)) => {
+                    Value::Int(if *x != 0 || *y != 0 { 1 } else { 0 })
+                }
+                _ => panic!(
+                    "__or only supports int inputs, found {:?} and {:?}",
+                    args[0], args[1]
+                ),
             }
         }
         "__less" => {
@@ -271,6 +260,28 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Value {
     match expr {
         ast::Expression::IntConst { value } => Value::Int(*value),
         ast::Expression::FloatConst { value } => Value::Tuple(TupleTag::Nil, vec![*value as f32]),
+        ast::Expression::TupleConst { tag, values } => {
+            // Here we assume that all expressions inside a tuple literal evaluate to a scalar
+            // (that we promote to float to store in the tuple).
+            Value::Tuple(
+                *tag,
+                values
+                    .iter()
+                    .map(|x| promote_scalar_to_float(eval_expression(x, env)))
+                    .collect(),
+            )
+        }
+        ast::Expression::Cast { tag, expr } => {
+            let expr_val = eval_expression(&expr, env);
+            if let Value::Tuple(_, data) = expr_val {
+                Value::Tuple(*tag, data)
+            } else {
+                panic!(
+                    "cast expression must evaluate to a tuple, got {:?}",
+                    expr_val
+                );
+            }
+        }
         ast::Expression::FunctionCall { name, args } => eval_function_call(&name, &args, env),
         ast::Expression::Variable { name } => {
             if let Some(val) = env.values.get(name) {
@@ -367,7 +378,8 @@ pub fn eval_filter(filter: &ast::Filter, x: f32, y: f32, t: f32) -> Value {
     bind_float_scalar("r", r);
     bind_float_scalar("a", a);
 
-    env.values.insert("xy".to_string(), Value::Tuple(TupleTag::Xy, vec![x, y]));
+    env.values
+        .insert("xy".to_string(), Value::Tuple(TupleTag::Xy, vec![x, y]));
 
     eval_filter_impl(filter, &mut env)
 }
@@ -474,6 +486,32 @@ mod tests {
         let mut env = Environment::new();
         let val = eval_expression(&ast, &mut env);
         let val_expected = Value::Int(1);
+        assert_eq!(val, val_expected);
+    }
+
+    #[test]
+    fn test_tuple_build() {
+        let input = "rgba:[1, 2, 3, 4]";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let mut env = Environment::new();
+        let val = eval_expression(&ast, &mut env);
+        let val_expected = Value::Tuple(TupleTag::Rgba, vec![1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(val, val_expected);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_cast() {
+        let input = "ri:xy";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let mut env = Environment::new();
+        env.values
+            .insert("ri".to_string(), Value::Tuple(TupleTag::Ri, vec![1.0, 2.0]));
+        let val = eval_expression(&ast, &mut env);
+        dbg!(&val);
+        let val_expected = Value::Tuple(TupleTag::Xy, vec![1.0, 2.0]);
         assert_eq!(val, val_expected);
     }
 }
