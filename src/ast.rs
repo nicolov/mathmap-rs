@@ -16,7 +16,6 @@ enum Associativity {
     Right,
 }
 
-
 fn get_op_info(op: &lexer::Token) -> Option<OpInfo> {
     match op {
         lexer::Token::Less => Some(OpInfo {
@@ -83,6 +82,10 @@ pub enum Expression {
         name: String,
         value: Box<Expression>,
     },
+    Index {
+        expr: Box<Expression>,
+        index: Box<Expression>,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -137,6 +140,17 @@ impl<'a> Parser<'a> {
                 expected, t
             ))),
             None => Err(ParseError::new("Unexpected end of input")),
+        }
+    }
+
+    fn expect_done(&mut self) -> Result<(), ParseError> {
+        let t = self.tokens.next();
+        match t {
+            Some(t) => Err(ParseError::new(format!(
+                "Expected end of input, got {:?}",
+                t
+            ))),
+            None => Ok(()),
         }
     }
 
@@ -253,6 +267,15 @@ impl<'a> Parser<'a> {
                             "Only identifiers can be called as functions",
                         ));
                     }
+                }
+                Some(lexer::Token::LBracket) => {
+                    self.expect(lexer::Token::LBracket)?;
+                    let index = self.parse_expression(1)?;
+                    self.expect(lexer::Token::RBracket)?;
+                    expr = Expression::Index {
+                        expr: Box::new(expr),
+                        index: Box::new(index),
+                    };
                 }
                 Some(lexer::Token::Colon) => {
                     if let Expression::Variable { ref name } = expr {
@@ -415,6 +438,7 @@ mod tests {
         let mut parser = Parser::new(input);
 
         let ast = parser.parse_expression(1).unwrap();
+        parser.expect_done().unwrap();
 
         let ast_ref = Expression::FunctionCall {
             name: "__add".to_string(),
@@ -474,6 +498,92 @@ mod tests {
                     name: "x".to_string(),
                 },
             ],
+        };
+
+        assert_eq!(ast, ast_ref);
+    }
+
+    #[test]
+    fn test_parse_expr_index() {
+        let input = "x[1]";
+        let mut parser = Parser::new(input);
+
+        let ast = parser.parse_expression(1).unwrap();
+        parser.expect_done().unwrap();
+
+        let ast_ref = Expression::Index {
+            expr: Box::new(Expression::Variable {
+                name: "x".to_string(),
+            }),
+            index: Box::new(Expression::IntConst { value: 1 }),
+        };
+
+        assert_eq!(ast, ast_ref);
+    }
+
+    #[test]
+    fn test_parse_expr_index_2() {
+        let input = "x + y[1 + z]";
+        let mut parser = Parser::new(input);
+
+        let ast = parser.parse_expression(1).unwrap();
+        parser.expect_done().unwrap();
+
+        let ast_ref = Expression::FunctionCall {
+            name: "__add".to_string(),
+            args: vec![
+                Expression::Variable {
+                    name: "x".to_string(),
+                },
+                Expression::Index {
+                    expr: Box::new(Expression::Variable {
+                        name: "y".to_string(),
+                    }),
+                    index: Box::new(Expression::FunctionCall {
+                        name: "__add".to_string(),
+                        args: vec![
+                            Expression::IntConst { value: 1 },
+                            Expression::Variable {
+                                name: "z".to_string(),
+                            },
+                        ],
+                    }),
+                },
+            ],
+        };
+
+        assert_eq!(ast, ast_ref);
+    }
+
+    #[test]
+    fn test_parse_expr_index_3() {
+        let input = "(x + y)[1 + z]";
+        let mut parser = Parser::new(input);
+
+        let ast = parser.parse_expression(1).unwrap();
+        parser.expect_done().unwrap();
+
+        let ast_ref = Expression::Index {
+            expr: Box::new(Expression::FunctionCall {
+                name: "__add".to_string(),
+                args: vec![
+                    Expression::Variable {
+                        name: "x".to_string(),
+                    },
+                    Expression::Variable {
+                        name: "y".to_string(),
+                    },
+                ],
+            }),
+            index: Box::new(Expression::FunctionCall {
+                name: "__add".to_string(),
+                args: vec![
+                    Expression::IntConst { value: 1 },
+                    Expression::Variable {
+                        name: "z".to_string(),
+                    },
+                ],
+            }),
         };
 
         assert_eq!(ast, ast_ref);

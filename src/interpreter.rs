@@ -282,6 +282,26 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Value {
             env.values.insert(name.clone(), value.clone());
             value
         }
+        ast::Expression::Index { expr, index } => {
+            let expr = eval_expression(expr, env);
+            let index = eval_expression(index, env);
+            if let Value::Tuple(_, data) = expr {
+                if let Value::Int(idx) = index {
+                    if idx < 0 || idx >= data.len() as i64 {
+                        panic!(
+                            "index out of bounds, got {} but tuple has {} elements",
+                            idx,
+                            data.len()
+                        );
+                    }
+                    Value::Tuple(TupleTag::Nil, vec![data[idx as usize].clone()])
+                } else {
+                    panic!("index must be int, got {:?}", index);
+                }
+            } else {
+                panic!("only tuples can be indexed, got {:?}", expr);
+            }
+        }
     }
 }
 
@@ -387,6 +407,17 @@ mod tests {
         let mut env = Environment::new();
         let val = eval_expression(&ast, &mut env);
         let val_expected = Value::Tuple(TupleTag::Rgba, vec![6.0, 8.0, 10.0, 12.0]);
+        assert_eq!(val, val_expected);
+    }
+
+    #[test]
+    fn test_index() {
+        let input = "(rgba:[1, 2, 3, 4])[1]";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let mut env = Environment::new();
+        let val = eval_expression(&ast, &mut env);
+        let val_expected = Value::Tuple(TupleTag::Nil, vec![2.0]);
         assert_eq!(val, val_expected);
     }
 }
