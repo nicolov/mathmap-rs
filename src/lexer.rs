@@ -219,6 +219,14 @@ impl<'a> Lexer<'a> {
                     }
                 }
 
+                '|' => {
+                    if self.match_next('|') {
+                        Some(Token::Or)
+                    } else {
+                        panic!("unexpected | without ||");
+                    }
+                }
+
                 x if x.is_digit(10) => self.lex_number(),
 
                 x if x.is_alphabetic() => self.lex_identifier(),
@@ -329,6 +337,23 @@ mod test {
                     Token::NumberLit("0"),
                     Token::RParen,
                     Token::End,
+                ]
+        );
+    }
+
+    #[test]
+    fn test_or() {
+        let s = "(a + b) || c";
+        assert!(
+            tokenize(s)
+                == vec![
+                    Token::LParen,
+                    Token::Ident("a"),
+                    Token::Plus,
+                    Token::Ident("b"),
+                    Token::RParen,
+                    Token::Or,
+                    Token::Ident("c"),
                 ]
         );
     }

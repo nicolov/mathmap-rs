@@ -195,6 +195,14 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
             assert!(args.len() == 2);
             eval_binary_op(&args[0], &args[1], std::ops::Rem::rem, std::ops::Rem::rem)
         }
+        "__or" => {
+            assert!(args.len() == 2);
+            // Only supports scalar ints for now, should we promote floats?
+            match (&args[0], &args[1]) {
+                (Value::Int(x), Value::Int(y)) => Value::Int(if *x != 0 || *y != 0 { 1 } else { 0 }),
+                _ => panic!("__or only supports int inputs, found {:?} and {:?}", args[0], args[1]),
+            }
+        }
         "__less" => {
             assert!(args.len() == 2);
 
@@ -204,6 +212,19 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
                     let a = promote_scalar_to_float(args[0].clone());
                     let b = promote_scalar_to_float(args[1].clone());
                     let res = a < b;
+                    Value::Int(if res { 1 } else { 0 })
+                }
+            }
+        }
+        "__lessequal" => {
+            assert!(args.len() == 2);
+
+            match (&args[0], &args[1]) {
+                (Value::Int(x), Value::Int(y)) => Value::Int(if x <= y { 1 } else { 0 }),
+                _ => {
+                    let a = promote_scalar_to_float(args[0].clone());
+                    let b = promote_scalar_to_float(args[1].clone());
+                    let res = a <= b;
                     Value::Int(if res { 1 } else { 0 })
                 }
             }
@@ -418,6 +439,39 @@ mod tests {
         let mut env = Environment::new();
         let val = eval_expression(&ast, &mut env);
         let val_expected = Value::Tuple(TupleTag::Nil, vec![2.0]);
+        assert_eq!(val, val_expected);
+    }
+
+    #[test]
+    fn test_less() {
+        let input = "1 < 1";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let mut env = Environment::new();
+        let val = eval_expression(&ast, &mut env);
+        let val_expected = Value::Int(0);
+        assert_eq!(val, val_expected);
+    }
+
+    #[test]
+    fn test_lessequal() {
+        let input = "1 <= 1";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let mut env = Environment::new();
+        let val = eval_expression(&ast, &mut env);
+        let val_expected = Value::Int(1);
+        assert_eq!(val, val_expected);
+    }
+
+    #[test]
+    fn test_or() {
+        let input = "0 || 1";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let mut env = Environment::new();
+        let val = eval_expression(&ast, &mut env);
+        let val_expected = Value::Int(1);
         assert_eq!(val, val_expected);
     }
 }

@@ -18,10 +18,25 @@ enum Associativity {
 
 fn get_op_info(op: &lexer::Token) -> Option<OpInfo> {
     match op {
+        lexer::Token::Assign => Some(OpInfo {
+            precedence: 2,
+            associativity: Associativity::Right,
+            name: "__assign",
+        }),
+        lexer::Token::Or => Some(OpInfo {
+            precedence: 3,
+            associativity: Associativity::Left,
+            name: "__or",
+        }),
         lexer::Token::Less => Some(OpInfo {
             precedence: 4,
             associativity: Associativity::Left,
             name: "__less",
+        }),
+        lexer::Token::LessEqual => Some(OpInfo {
+            precedence: 4,
+            associativity: Associativity::Left,
+            name: "__lessequal",
         }),
         lexer::Token::Plus => Some(OpInfo {
             precedence: 5,
@@ -47,11 +62,6 @@ fn get_op_info(op: &lexer::Token) -> Option<OpInfo> {
             precedence: 6,
             associativity: Associativity::Left,
             name: "__mod",
-        }),
-        lexer::Token::Assign => Some(OpInfo {
-            precedence: 2,
-            associativity: Associativity::Right,
-            name: "__assign",
         }),
         _ => None,
     }
@@ -632,6 +642,23 @@ mod tests {
         let ast_ref = Expression::Assignment {
             name: "x".to_string(),
             value: Box::new(Expression::IntConst { value: 100 }),
+        };
+        assert_eq!(ast, ast_ref);
+    }
+
+    #[test]
+    fn test_parse_expr_or() {
+        let input = "x || 100";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let ast_ref = Expression::FunctionCall {
+            name: "__or".to_string(),
+            args: vec![
+                Expression::Variable {
+                    name: "x".to_string(),
+                },
+                Expression::IntConst { value: 100 },
+            ],
         };
         assert_eq!(ast, ast_ref);
     }
