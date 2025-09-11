@@ -7,6 +7,14 @@ fn render_gray() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn render_grid() -> Result<(), Box<dyn std::error::Error>> {
+    let mut im = mathmap::exec_mathmap_script("examples/render/grid.mm", 256, 256, 1)?;
+    let im_ref = image::open("tests/render_grid.png")?;
+    assert_eq!(im.next().unwrap(), im_ref.into());
+    Ok(())
+}
+
+#[test]
 #[ignore]
 fn render_moire1() -> Result<(), Box<dyn std::error::Error>> {
     let im = mathmap::exec_mathmap_script("examples/render/moire_1.mm", 256, 256, 1)?

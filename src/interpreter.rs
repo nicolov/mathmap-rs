@@ -367,6 +367,8 @@ pub fn eval_filter(filter: &ast::Filter, x: f32, y: f32, t: f32) -> Value {
     bind_float_scalar("r", r);
     bind_float_scalar("a", a);
 
+    env.values.insert("xy".to_string(), Value::Tuple(TupleTag::Xy, vec![x, y]));
+
     eval_filter_impl(filter, &mut env)
 }
 

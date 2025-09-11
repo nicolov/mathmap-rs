@@ -20,11 +20,11 @@ pub fn exec_mathmap_script(
     let render_fn = move |t: f32| {
         image::ImageBuffer::<image::Rgba<u8>, _>::from_fn(im_w, im_h, |x, y| {
             // Scale x from -1 to 1.
-            let cx = (im_w as f32) / 2.0;
-            let cy = (im_h as f32) / 2.0;
+            let cx = (im_w as f32 - 1.0) / 2.0;
+            let cy = (im_h as f32 - 1.0) / 2.0;
 
-            let xf = (x as f32 + 0.5 - cx) / (cx);
-            let yf = (y as f32 + 0.5 - cy) / (cy);
+            let xf = (x as f32 - cx) / cx;
+            let yf = (y as f32 - cy) / cy;
             // Flip Y so +y is up (cartesian).
             let yf = -yf;
 
