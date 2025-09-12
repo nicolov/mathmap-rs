@@ -40,6 +40,11 @@ fn get_op_info(op: &lexer::Token) -> Option<OpInfo> {
             associativity: Associativity::Right,
             name: "__assign",
         }),
+        lexer::Token::And => Some(OpInfo {
+            precedence: 3,
+            associativity: Associativity::Left,
+            name: "__and",
+        }),
         lexer::Token::Or => Some(OpInfo {
             precedence: 3,
             associativity: Associativity::Left,
@@ -770,6 +775,21 @@ mod tests {
                     name: "x".to_string(),
                 },
                 Expression::IntConst { value: 100 },
+            ],
+        };
+        assert_eq!(ast, ast_ref);
+    }
+
+    #[test]
+    fn test_parse_expr_and() {
+        let input = "1 && 2";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let ast_ref = Expression::FunctionCall {
+            name: "__and".to_string(),
+            args: vec![
+                Expression::IntConst { value: 1 },
+                Expression::IntConst { value: 2 },
             ],
         };
         assert_eq!(ast, ast_ref);

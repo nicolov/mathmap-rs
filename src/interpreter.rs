@@ -127,6 +127,29 @@ where
 }
 
 fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environment) -> Value {
+    // Logical and needs special logic for short-circuiting.
+    if name == "__and" {
+        assert!(args.len() == 2);
+
+        if let Value::Int(x) = eval_expression(&args[0], env) {
+            if x != 0 {
+                if let Value::Int(y) = eval_expression(&args[1], env) {
+                    if y != 0 {
+                        return Value::Int(1);
+                    } else {
+                        return Value::Int(0);
+                    }
+                } else {
+                    panic!("and operator expects int arguments, found {:?}", args[1]);
+                }
+            } else {
+                return Value::Int(0);
+            }
+        } else {
+            panic!("and operator expects int arguments, found {:?}", args[0]);
+        }
+    }
+
     let args = args
         .iter()
         .map(|arg| eval_expression(arg, env))
@@ -501,6 +524,17 @@ mod tests {
     #[test]
     fn test_or() {
         let input = "0 || 1";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let mut env = Environment::new();
+        let val = eval_expression(&ast, &mut env);
+        let val_expected = Value::Int(1);
+        assert_eq!(val, val_expected);
+    }
+
+    #[test]
+    fn test_and() {
+        let input = "1 && 2";
         let mut parser = Parser::new(input);
         let ast = parser.parse_expression(1).unwrap();
         let mut env = Environment::new();

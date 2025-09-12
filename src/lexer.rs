@@ -227,6 +227,14 @@ impl<'a> Lexer<'a> {
                     }
                 }
 
+                '&' => {
+                    if self.match_next('&') {
+                        Some(Token::And)
+                    } else {
+                        panic!("unexpected & without &&");
+                    }
+                }
+
                 x if x.is_digit(10) => self.lex_number(),
 
                 x if x.is_alphabetic() => self.lex_identifier(),
