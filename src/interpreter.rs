@@ -299,9 +299,9 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Value {
 
             if let Value::Int(x) = cond_result {
                 if x != 0 {
-                    eval_expression(then, env)
-                } else if let Some(else_expr) = else_ {
-                    eval_expression(else_expr, env)
+                    eval_expr_block(then, env)
+                } else if !else_.is_empty() {
+                    eval_expr_block(else_, env)
                 } else {
                     todo!();
                 }
@@ -337,18 +337,20 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Value {
     }
 }
 
-fn eval_filter_impl(filter: &ast::Filter, env: &mut Environment) -> Value {
-    let mut exprs = filter.exprs.iter().peekable();
+fn eval_expr_block(exprs: &Vec<ast::Expression>, env: &mut Environment) -> Value {
+    assert!(!exprs.is_empty());
 
-    while let Some(expr) = exprs.next() {
-        let result = eval_expression(expr, env);
+    let mut result: Option<Value> = None;
 
-        if exprs.peek().is_none() {
-            return result;
-        }
+    for expr in exprs {
+        result = Some(eval_expression(expr, env));
     }
 
-    panic!("unreachable");
+    result.unwrap()
+}
+
+fn eval_filter_impl(filter: &ast::Filter, env: &mut Environment) -> Value {
+    return eval_expr_block(&filter.exprs, env);
 }
 
 fn to_ra(x: f32, y: f32) -> (f32, f32) {
@@ -501,17 +503,28 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    fn test_if() {
+        let input = "if x < 100 then y = 10; y else 200 end";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let mut env = Environment::new();
+        env.values.insert("x".to_string(), Value::Int(1));
+        let val = eval_expression(&ast, &mut env);
+        let val_expected = Value::Int(10);
+        assert_eq!(val, val_expected);
+    }
+
+    #[test]
     fn test_cast() {
         let input = "ri:xy";
         let mut parser = Parser::new(input);
         let ast = parser.parse_expression(1).unwrap();
         let mut env = Environment::new();
         env.values
-            .insert("ri".to_string(), Value::Tuple(TupleTag::Ri, vec![1.0, 2.0]));
+            .insert("xy".to_string(), Value::Tuple(TupleTag::Xy, vec![1.0, 2.0]));
         let val = eval_expression(&ast, &mut env);
         dbg!(&val);
-        let val_expected = Value::Tuple(TupleTag::Xy, vec![1.0, 2.0]);
+        let val_expected = Value::Tuple(TupleTag::Ri, vec![1.0, 2.0]);
         assert_eq!(val, val_expected);
     }
 }

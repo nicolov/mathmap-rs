@@ -106,8 +106,8 @@ pub enum Expression {
     },
     If {
         condition: Box<Expression>,
-        then: Box<Expression>,
-        else_: Option<Box<Expression>>,
+        then: Vec<Expression>,
+        else_: Vec<Expression>,
     },
     Assignment {
         name: String,
@@ -244,22 +244,25 @@ impl<'a> Parser<'a> {
                 self.tokens.next();
                 let condition_expr = self.parse_expression(1)?;
                 self.expect(lexer::Token::Then)?;
-                let then_expr = self.parse_expression(1)?;
+                let then_expr = self.parse_expr_block()?;
 
                 let else_expr = if self.tokens.peek() == Some(&lexer::Token::Else) {
-                    self.tokens.next();
-                    Some(Box::new(self.parse_expression(1)?))
+                    self.expect(lexer::Token::Else)?;
+                    self.parse_expr_block()?
                 } else {
-                    None
+                    vec![]
                 };
 
                 self.expect(lexer::Token::End)?;
 
                 Ok(Expression::If {
                     condition: Box::new(condition_expr),
-                    then: Box::new(then_expr),
+                    then: then_expr,
                     else_: else_expr,
                 })
+            }
+            Some(lexer::Token::While) => {
+                todo!();
             }
             None => Err(ParseError::new(
                 "Unexpected end of input while parsing expression",
@@ -321,6 +324,7 @@ impl<'a> Parser<'a> {
                             "rgba" => TupleTag::Rgba,
                             "ri" => TupleTag::Ri,
                             "xy" => TupleTag::Xy,
+                            "quat" => TupleTag::Quat,
                             _ => panic!("unknown tuple tag {:?}", name),
                         };
 
@@ -416,15 +420,8 @@ impl<'a> Parser<'a> {
         return Ok(atom_lhs);
     }
 
-    fn parse_filter(&mut self) -> Result<Filter, ParseError> {
-        self.expect(lexer::Token::Filter)?;
-
-        let name = self.consume_ident()?;
-
-        self.expect(lexer::Token::LParen)?;
-        // todo: parse arguments
-        self.expect(lexer::Token::RParen)?;
-
+    // Parse a block of expressions separated by semicolon (for filters, if/while, etc..)
+    fn parse_expr_block(&mut self) -> Result<Vec<Expression>, ParseError> {
         let mut expressions: Vec<Expression> = Vec::new();
 
         loop {
@@ -443,6 +440,19 @@ impl<'a> Parser<'a> {
             }
         }
 
+        Ok(expressions)
+    }
+
+    fn parse_filter(&mut self) -> Result<Filter, ParseError> {
+        self.expect(lexer::Token::Filter)?;
+
+        let name = self.consume_ident()?;
+
+        self.expect(lexer::Token::LParen)?;
+        // todo: parse arguments
+        self.expect(lexer::Token::RParen)?;
+
+        let expressions = self.parse_expr_block()?;
         self.expect(lexer::Token::End)?;
 
         Ok(Filter {
@@ -646,11 +656,39 @@ mod tests {
                     Expression::IntConst { value: 100 },
                 ],
             }),
-            then: Box::new(Expression::IntConst { value: 100 }),
-            else_: Some(Box::new(Expression::IntConst { value: 200 })),
+            then: vec![Expression::IntConst { value: 100 }],
+            else_: vec![Expression::IntConst { value: 200 }],
         };
         assert_eq!(ast, ast_ref);
     }
+
+    #[test]
+    fn test_parse_expr_if_multiple_exprs() {
+        let input = "if x < 100 then y = 10; y else 200 end";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let ast_ref = Expression::If {
+            condition: Box::new(Expression::FunctionCall {
+                name: "__less".to_string(),
+                args: vec![
+                    Expression::Variable {
+                        name: "x".to_string(),
+                    },
+                    Expression::IntConst { value: 100 },
+                ],
+            }),
+            then: vec![
+                Expression::Assignment {
+                    name: "y".to_string(),
+                    value: Box::new(Expression::IntConst { value: 10 }),
+                },
+                Expression::Variable { name: "y".to_string() },
+            ],
+            else_: vec![Expression::IntConst { value: 200 }],
+        };
+        assert_eq!(ast, ast_ref);
+    }
+
 
     #[test]
     fn test_parse_expr_unary() {
