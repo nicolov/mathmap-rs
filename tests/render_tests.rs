@@ -49,3 +49,11 @@ fn render_spiral() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(im.next().unwrap(), im_ref.into());
     Ok(())
 }
+
+#[test]
+fn render_mandelbrot() -> Result<(), Box<dyn std::error::Error>> {
+    let mut im = mathmap::exec_mathmap_script("examples/render/mandelbrot.mm", 256, 256, 1)?;
+    let im_ref = image::open("tests/render_mandelbrot.png")?.to_rgba8();
+    assert_eq!(im.next().unwrap(), im_ref.into());
+    Ok(())
+}

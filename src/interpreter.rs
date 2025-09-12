@@ -56,6 +56,7 @@ fn eval_binary_op<FloatOp, IntOp>(
     rhs: &Value,
     float_op: FloatOp,
     int_op: IntOp,
+    always_as_float: bool,
 ) -> Value
 where
     FloatOp: Fn(f32, f32) -> f32,
@@ -65,7 +66,7 @@ where
     // the scalar side.
     match (lhs.len(), rhs.len()) {
         (1, 1) => {
-            if needs_float(lhs, rhs) {
+            if always_as_float || needs_float(lhs, rhs) {
                 let a = promote_scalar_to_float(lhs.clone());
                 let b = promote_scalar_to_float(rhs.clone());
                 Value::Tuple(TupleTag::Nil, vec![float_op(a, b)])
@@ -126,6 +127,14 @@ where
     }
 }
 
+fn quat_mul(a: &Vec<f32>, b: &Vec<f32>) -> Vec<f32> {
+    let w = a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3];
+    let x = a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2];
+    let y = a[0] * b[2] + a[2] * b[0] - a[1] * b[3] + a[3] * b[1];
+    let z = a[0] * b[3] + a[3] * b[0] + a[1] * b[2] - a[2] * b[1];
+    vec![w, x, y, z]
+}
+
 fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environment) -> Value {
     // Logical and needs special logic for short-circuiting.
     if name == "__and" {
@@ -184,23 +193,29 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
         }
         "__add" => {
             assert!(args.len() == 2);
-            eval_binary_op(&args[0], &args[1], std::ops::Add::add, std::ops::Add::add)
+            eval_binary_op(&args[0], &args[1], std::ops::Add::add, std::ops::Add::add, false)
         }
         "__sub" => {
             assert!(args.len() == 2);
-            eval_binary_op(&args[0], &args[1], std::ops::Sub::sub, std::ops::Sub::sub)
+            eval_binary_op(&args[0], &args[1], std::ops::Sub::sub, std::ops::Sub::sub, false)
         }
         "__mul" => {
             assert!(args.len() == 2);
-            eval_binary_op(&args[0], &args[1], std::ops::Mul::mul, std::ops::Mul::mul)
+
+            match (&args[0], &args[1]) {
+                (Value::Tuple(TupleTag::Quat, q1), Value::Tuple(TupleTag::Quat, q2)) => {
+                    Value::Tuple(TupleTag::Quat, quat_mul(q1, q2))
+                }
+                _ => eval_binary_op(&args[0], &args[1], std::ops::Mul::mul, std::ops::Mul::mul, false),
+            }
         }
         "__div" => {
             assert!(args.len() == 2);
-            eval_binary_op(&args[0], &args[1], std::ops::Div::div, std::ops::Div::div)
+            eval_binary_op(&args[0], &args[1], std::ops::Div::div, std::ops::Div::div, true)
         }
         "__mod" => {
             assert!(args.len() == 2);
-            eval_binary_op(&args[0], &args[1], std::ops::Rem::rem, std::ops::Rem::rem)
+            eval_binary_op(&args[0], &args[1], std::ops::Rem::rem, std::ops::Rem::rem, false)
         }
         "__or" => {
             assert!(args.len() == 2);
@@ -257,6 +272,10 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
             let a = args[0].clone();
 
             match a {
+                Value::Tuple(TupleTag::Quat, data) => {
+                    let mag = data.iter().map(|x| x * x).sum::<f32>().sqrt();
+                    Value::Tuple(TupleTag::Nil, vec![mag])
+                }
                 Value::Tuple(tag, data) => {
                     Value::Tuple(tag, data.iter().map(|x| x.abs()).collect())
                 }
