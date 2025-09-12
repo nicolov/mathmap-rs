@@ -309,6 +309,24 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Value {
                 panic!("condition is not an int");
             }
         }
+        ast::Expression::While { condition, body } => {
+            loop {
+                let cond_result = eval_expression(condition, env);
+
+                if let Value::Int(x) = cond_result {
+                    if x != 0 {
+                        eval_expr_block(body, env);
+                    } else {
+                        break;
+                    }
+                } else {
+                    panic!("condition is not an int");
+                }
+            }
+
+            // A while loop always evaluates to 0 according to the docs.
+            Value::Int(0)
+        }
         ast::Expression::Assignment { name, value } => {
             let value = eval_expression(value, env);
             env.values.insert(name.clone(), value.clone());
@@ -510,6 +528,17 @@ mod tests {
         let mut env = Environment::new();
         env.values.insert("x".to_string(), Value::Int(1));
         let val = eval_expression(&ast, &mut env);
+        let val_expected = Value::Int(10);
+        assert_eq!(val, val_expected);
+    }
+
+    #[test]
+    fn test_while() {
+        let input = "i = 0; while i < 10 do i = i + 1; end; i";
+        let mut parser = Parser::new(input);
+        let exprs = parser.parse_expr_block().unwrap();
+        let mut env = Environment::new();
+        let val = eval_expr_block(&exprs, &mut env);
         let val_expected = Value::Int(10);
         assert_eq!(val, val_expected);
     }

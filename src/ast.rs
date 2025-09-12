@@ -109,6 +109,10 @@ pub enum Expression {
         then: Vec<Expression>,
         else_: Vec<Expression>,
     },
+    While {
+        condition: Box<Expression>,
+        body: Vec<Expression>,
+    },
     Assignment {
         name: String,
         value: Box<Expression>,
@@ -241,7 +245,7 @@ impl<'a> Parser<'a> {
                 }
             }
             Some(lexer::Token::If) => {
-                self.tokens.next();
+                self.expect(lexer::Token::If)?;
                 let condition_expr = self.parse_expression(1)?;
                 self.expect(lexer::Token::Then)?;
                 let then_expr = self.parse_expr_block()?;
@@ -262,7 +266,16 @@ impl<'a> Parser<'a> {
                 })
             }
             Some(lexer::Token::While) => {
-                todo!();
+                self.expect(lexer::Token::While)?;
+                let condition_expr = self.parse_expression(1)?;
+                self.expect(lexer::Token::Do)?;
+                let body_expr = self.parse_expr_block()?;
+                self.expect(lexer::Token::End)?;
+
+                Ok(Expression::While {
+                    condition: Box::new(condition_expr),
+                    body: body_expr,
+                })
             }
             None => Err(ParseError::new(
                 "Unexpected end of input while parsing expression",
@@ -421,7 +434,7 @@ impl<'a> Parser<'a> {
     }
 
     // Parse a block of expressions separated by semicolon (for filters, if/while, etc..)
-    fn parse_expr_block(&mut self) -> Result<Vec<Expression>, ParseError> {
+    pub fn parse_expr_block(&mut self) -> Result<Vec<Expression>, ParseError> {
         let mut expressions: Vec<Expression> = Vec::new();
 
         loop {
@@ -685,6 +698,35 @@ mod tests {
                 Expression::Variable { name: "y".to_string() },
             ],
             else_: vec![Expression::IntConst { value: 200 }],
+        };
+        assert_eq!(ast, ast_ref);
+    }
+
+    #[test]
+    fn test_parse_expr_while() {
+        let input = "while x < 2 do y = 1; z = 2 end";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1).unwrap();
+        let ast_ref = Expression::While {
+            condition: Box::new(Expression::FunctionCall {
+                name: "__less".to_string(),
+                args: vec![
+                    Expression::Variable {
+                        name: "x".to_string(),
+                    },
+                    Expression::IntConst { value: 2 },
+                ],
+            }),
+            body: vec![
+                Expression::Assignment {
+                    name: "y".to_string(),
+                    value: Box::new(Expression::IntConst { value: 1 }),
+                },
+                Expression::Assignment {
+                    name: "z".to_string(),
+                    value: Box::new(Expression::IntConst { value: 2 }),
+                },
+            ],
         };
         assert_eq!(ast, ast_ref);
     }
