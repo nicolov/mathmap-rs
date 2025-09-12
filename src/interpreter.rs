@@ -193,11 +193,23 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
         }
         "__add" => {
             assert!(args.len() == 2);
-            eval_binary_op(&args[0], &args[1], std::ops::Add::add, std::ops::Add::add, false)
+            eval_binary_op(
+                &args[0],
+                &args[1],
+                std::ops::Add::add,
+                std::ops::Add::add,
+                false,
+            )
         }
         "__sub" => {
             assert!(args.len() == 2);
-            eval_binary_op(&args[0], &args[1], std::ops::Sub::sub, std::ops::Sub::sub, false)
+            eval_binary_op(
+                &args[0],
+                &args[1],
+                std::ops::Sub::sub,
+                std::ops::Sub::sub,
+                false,
+            )
         }
         "__mul" => {
             assert!(args.len() == 2);
@@ -206,16 +218,34 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
                 (Value::Tuple(TupleTag::Quat, q1), Value::Tuple(TupleTag::Quat, q2)) => {
                     Value::Tuple(TupleTag::Quat, quat_mul(q1, q2))
                 }
-                _ => eval_binary_op(&args[0], &args[1], std::ops::Mul::mul, std::ops::Mul::mul, false),
+                _ => eval_binary_op(
+                    &args[0],
+                    &args[1],
+                    std::ops::Mul::mul,
+                    std::ops::Mul::mul,
+                    false,
+                ),
             }
         }
         "__div" => {
             assert!(args.len() == 2);
-            eval_binary_op(&args[0], &args[1], std::ops::Div::div, std::ops::Div::div, true)
+            eval_binary_op(
+                &args[0],
+                &args[1],
+                std::ops::Div::div,
+                std::ops::Div::div,
+                true,
+            )
         }
         "__mod" => {
             assert!(args.len() == 2);
-            eval_binary_op(&args[0], &args[1], std::ops::Rem::rem, std::ops::Rem::rem, false)
+            eval_binary_op(
+                &args[0],
+                &args[1],
+                std::ops::Rem::rem,
+                std::ops::Rem::rem,
+                false,
+            )
         }
         "__or" => {
             assert!(args.len() == 2);
@@ -293,6 +323,36 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
                 }
                 Value::Int(x) => Value::Tuple(TupleTag::Nil, vec![f32::from(x as f32).sin()]),
             }
+        }
+        "log" => {
+            assert!(args.len() == 1);
+
+            let a = args[0].clone();
+
+            match a {
+                Value::Tuple(tag, data) => Value::Tuple(tag, data.iter().map(|x| x.ln()).collect()),
+                Value::Int(x) => Value::Tuple(TupleTag::Nil, vec![f32::from(x as f32).ln()]),
+            }
+        }
+        "min" => {
+            assert!(args.len() == 2);
+            eval_binary_op(
+                &args[0],
+                &args[1],
+                |x, y| x.min(y),
+                |x, y| x.min(y),
+                false,
+            )
+        }
+        "max" => {
+            assert!(args.len() == 2);
+            eval_binary_op(
+                &args[0],
+                &args[1],
+                |x, y| x.max(y),
+                |x, y| x.max(y),
+                false,
+            )
         }
         _ => panic!("unimplemented function {}", name),
     }
