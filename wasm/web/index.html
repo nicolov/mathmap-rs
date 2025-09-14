@@ -3,30 +3,77 @@
 
 <head>
 	<meta charset="utf-8">
-	<title>Mathmap WASM demo</title>
+	<title>Mathmap WASM Demo</title>
+	<link rel="stylesheet" href="index.css">
 </head>
 
 <body>
-	<canvas id="canvas"></canvas>
+	<header>
+		<h1>Mathmap demo</h1>
+		<a href="http://github.com/nicolov/mathmap-rs">github.com/nicolov/mathmap-rs</a>
+	</header>
+
+	<main>
+		<div class="half">
+			<div class="instructions">
+				<p>Enter a Mathmap script below and press <strong>Render</strong> or <strong>Cmd/Ctrl+Enter</strong> to
+					generate the image. The rendering code runs entirely in your browser and no data is sent anywhere.</p>
+				<p>Hint: try playing with the example below.</p>
+			</div>
+			<textarea id="inputBox"></textarea>
+			<button id="renderBtn">Render</button>
+		</div>
+
+		<div class="half">
+			<canvas id="canvas"></canvas>
+		</div>
+	</main>
+
 	<script type="module">
 		import init, { make_image } from "./pkg/mathmap_wasm.js";
 
 		async function run() {
 			await init();
-			const width = 256, height = 256;
-			const data = make_image(width, height);
-
 			const canvas = document.getElementById("canvas");
+			const ctx = canvas.getContext("2d");
+			const width = 256, height = 256;
 			canvas.width = width;
 			canvas.height = height;
-			const ctx = canvas.getContext("2d");
 
-			const imgData = new ImageData(
-				new Uint8ClampedArray(data),
-				width,
-				height
-			);
-			ctx.putImageData(imgData, 0, 0);
+			function render() {
+				const text = document.getElementById("inputBox").value;
+				const data = make_image(text);
+				const imgData = new ImageData(
+					new Uint8ClampedArray(data),
+					width,
+					height
+				);
+				ctx.putImageData(imgData, 0, 0);
+			}
+
+			document.getElementById("inputBox").value = `\
+filter target ()
+    if r % 0.4 < 0.2 then
+        rgbColor(1, 0, 0)
+    else
+        rgbColor(1, 1, 1)
+    end
+end
+`;
+
+			// Render once on page load.
+			render();
+
+			// Render on button click.
+			document.getElementById("renderBtn").addEventListener("click", render);
+
+			// Render on Cmd+Enter or Ctrl+Enter.
+			document.getElementById("inputBox").addEventListener("keydown", (e) => {
+				if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+					e.preventDefault();
+					render();
+				}
+			});
 		}
 
 		run();

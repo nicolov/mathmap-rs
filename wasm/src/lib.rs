@@ -1,17 +1,12 @@
+use image::{Rgba, RgbaImage};
 use wasm_bindgen::prelude::*;
-use image::{RgbaImage, Rgba};
 
 #[wasm_bindgen]
-pub fn make_image(width: u32, height: u32) -> Vec<u8> {
-    let mut img = RgbaImage::new(width, height);
+pub fn make_image(script: &str) -> Vec<u8> {
+    let im_w = 256;
+    let im_h = 256;
 
-    for y in 0..height {
-        for x in 0..width {
-            let r = (x * 255 / width) as u8;
-            let g = (y * 255 / height) as u8;
-            img.put_pixel(x, y, Rgba([r, g, 128, 255]));
-        }
-    }
+    let mut buffers = mathmap::exec_mathmap_script(script.to_string(), im_w, im_h, 1).unwrap();
 
-    img.into_raw()
+    buffers.next().unwrap().into_raw()
 }

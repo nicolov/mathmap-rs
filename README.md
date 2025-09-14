@@ -7,6 +7,8 @@ rendering that was originally designed for use as a GIMP plugin. I thought it
 would be a nice target for an hobby interpreter/compiler project, and here we
 are.
 
+Click [here](https://nicolov.github.io/mathmap-rs/) for a demo running on your browser with WASM.
+
 Here are some examples of what you can make with it:
 
 <table>

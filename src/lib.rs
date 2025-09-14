@@ -2,16 +2,23 @@ mod ast;
 mod interpreter;
 mod lexer;
 
-pub fn exec_mathmap_script(
+pub fn exec_mathmap_file(
     srcpath: &str,
     im_w: u32,
     im_h: u32,
     num_frames: i64,
 ) -> Result<impl Iterator<Item = image::ImageBuffer<image::Rgba<u8>, Vec<u8>>>, String> {
     let src = std::fs::read_to_string(srcpath).unwrap();
+    exec_mathmap_script(src, im_w, im_h, num_frames)
+}
 
+pub fn exec_mathmap_script(
+    src: String,
+    im_w: u32,
+    im_h: u32,
+    num_frames: i64,
+) -> Result<impl Iterator<Item = image::ImageBuffer<image::Rgba<u8>, Vec<u8>>>, String> {
     let module = ast::parse_module(&src).unwrap();
-
     println!("{:#?}", module);
 
     let mut filters = module.filters;

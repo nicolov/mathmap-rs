@@ -42,7 +42,7 @@ fn main() -> Result<(), lexopt::Error> {
     let im_w = 256;
     let im_h = 256;
 
-    let mut buffers = mathmap::exec_mathmap_script(&args.srcpath, im_w, im_h, args.num_frames)?;
+    let mut buffers = mathmap::exec_mathmap_file(&args.srcpath, im_w, im_h, args.num_frames)?;
 
     if args.num_frames == 1 {
         buffers.next().unwrap().save("out/out.png").unwrap();
