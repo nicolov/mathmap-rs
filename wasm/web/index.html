@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<title>Mathmap WASM demo</title>
+</head>
+
+<body>
+	<canvas id="canvas"></canvas>
+	<script type="module">
+		import init, { make_image } from "./pkg/mathmap_wasm.js";
+
+		async function run() {
+			await init();
+			const width = 256, height = 256;
+			const data = make_image(width, height);
+
+			const canvas = document.getElementById("canvas");
+			canvas.width = width;
+			canvas.height = height;
+			const ctx = canvas.getContext("2d");
+
+			const imgData = new ImageData(
+				new Uint8ClampedArray(data),
+				width,
+				height
+			);
+			ctx.putImageData(imgData, 0, 0);
+		}
+
+		run();
+	</script>
+</body>
+
+</html>
