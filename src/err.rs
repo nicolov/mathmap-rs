@@ -1,21 +1,25 @@
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SyntaxError {
     pub message: String,
+    pub line: usize,
+    pub column: usize,
 }
 
 impl SyntaxError {
-    pub fn new(msg: impl Into<String>) -> Self {
+    pub fn with_pos(msg: impl Into<String>, line: usize, column: usize) -> Self {
         SyntaxError {
             message: msg.into(),
+            line,
+            column,
         }
     }
 }
 
 impl fmt::Display for SyntaxError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SyntaxError: {}", self.message)
+        write!(f, "SyntaxError: {} on line {}, col {}", self.message, self.line, self.column)
     }
 }
 

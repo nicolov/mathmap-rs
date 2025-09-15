@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::SyntaxError;
-use crate::lexer::{self, TokenKind};
+use crate::lexer::{self, Spanned, TokenKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TupleTag {
@@ -154,25 +154,37 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn peek_token_kind(&mut self) -> Result<Option<lexer::TokenKind<'a>>, SyntaxError> {
+        match self.tokens.peek() {
+            Some(Ok(t)) => Ok(Some(t.item)),
+            Some(Err(e)) => Err(SyntaxError::with_pos(e.message.clone(), e.line, e.column)),
+            None => Ok(None),
+        }
+    }
+
     fn expect(&mut self, expected: lexer::TokenKind) -> Result<(), SyntaxError> {
         let t = self.tokens.next();
         match t {
-            Some(t) if t.item == expected => Ok(()),
-            Some(t) => Err(SyntaxError::new(format!(
-                "Expected {:?}, got {:?}",
-                expected, t
-            ))),
-            None => Err(SyntaxError::new("Unexpected end of input")),
+            Some(Ok(t)) if t.item == expected => Ok(()),
+            Some(Ok(t)) => Err(SyntaxError::with_pos(
+                format!("Expected {:?}, got {:?}", expected, t.item),
+                t.line,
+                t.column,
+            )),
+            Some(Err(e)) => Err(e),
+            None => Err(SyntaxError::with_pos("Unexpected end of input", 0, 0)),
         }
     }
 
     fn expect_done(&mut self) -> Result<(), SyntaxError> {
         let t = self.tokens.next();
         match t {
-            Some(t) => Err(SyntaxError::new(format!(
-                "Expected end of input, got {:?}",
-                t
-            ))),
+            Some(Ok(t)) => Err(SyntaxError::with_pos(
+                format!("Expected end of input, got {:?}", t.item),
+                t.line,
+                t.column,
+            )),
+            Some(Err(e)) => Err(e),
             None => Ok(()),
         }
     }
@@ -180,24 +192,23 @@ impl<'a> Parser<'a> {
     fn consume_ident(&mut self) -> Result<String, SyntaxError> {
         let t = self.tokens.next();
         match t {
-            Some(lexer::Token {
+            Some(Ok(lexer::Token {
                 item: TokenKind::Ident(s),
                 ..
-            }) => Ok(s.to_string()),
-            Some(t) => Err(SyntaxError::new(format!(
-                "Expected identifier, got {:?}",
-                t
-            ))),
-            None => Err(SyntaxError::new("Unexpected end of input")),
+            })) => Ok(s.to_string()),
+            Some(Ok(t)) => Err(SyntaxError::with_pos(
+                format!("Expected identifier, got {:?}", t.item),
+                t.line,
+                t.column,
+            )),
+            Some(Err(e)) => Err(e),
+            None => Err(SyntaxError::with_pos("Unexpected end of input", 0, 0)),
         }
     }
 
     fn parse_atom(&mut self) -> Result<Expression, SyntaxError> {
-        let mut expr = match self.tokens.peek() {
-            Some(lexer::Token {
-                item: TokenKind::Minus,
-                ..
-            }) => {
+        let mut expr = match self.peek_token_kind()? {
+            Some(TokenKind::Minus) => {
                 self.tokens.next();
                 let operand = self.parse_expression(100)?;
                 let args = vec![operand];
@@ -206,62 +217,74 @@ impl<'a> Parser<'a> {
                     args,
                 })
             }
-            Some(lexer::Token {
-                item: TokenKind::LParen,
-                ..
-            }) => {
+            Some(TokenKind::LParen) => {
                 self.expect(lexer::TokenKind::LParen)?;
                 // Start parsing a subexpression inside parentheses.
                 let subexpr = self.parse_expression(1)?;
                 self.expect(lexer::TokenKind::RParen)?;
                 Ok(subexpr)
             }
-            Some(lexer::Token {
-                item: TokenKind::Ident(s),
-                ..
-            }) => {
-                let name = s.to_string();
-                self.tokens.next();
-                Ok(Expression::Variable { name: name })
-            }
-            Some(lexer::Token {
-                item: TokenKind::NumberLit(s),
-                ..
-            }) => {
-                if s.contains(".") {
-                    match s.parse::<f32>() {
-                        Ok(x) => {
-                            self.tokens.next(); // consume number
-                            Ok(Expression::FloatConst { value: x })
+            Some(TokenKind::Ident(_)) => match self.tokens.next() {
+                Some(Ok(lexer::Token {
+                    item: TokenKind::Ident(s),
+                    ..
+                })) => Ok(Expression::Variable {
+                    name: s.to_string(),
+                }),
+                Some(Ok(t)) => Err(SyntaxError::with_pos(
+                    format!("Expected identifier, got {:?}", t.item),
+                    t.line,
+                    t.column,
+                )),
+                Some(Err(e)) => Err(e),
+                None => Err(SyntaxError::with_pos("Unexpected end of input", 0, 0)),
+            },
+            Some(TokenKind::NumberLit(_)) => match self.tokens.next() {
+                Some(Ok(lexer::Token {
+                    item: TokenKind::NumberLit(s),
+                    line,
+                    column,
+                })) => {
+                    if s.contains('.') {
+                        match s.parse::<f32>() {
+                            Ok(x) => Ok(Expression::FloatConst { value: x }),
+                            Err(_) => Err(SyntaxError::with_pos(
+                                format!("Invalid float literal: {}", s),
+                                line,
+                                column,
+                            )),
                         }
-                        Err(_) => Err(SyntaxError::new(format!("Invalid float literal: {}", s))),
-                    }
-                } else {
-                    match s.parse::<i64>() {
-                        Ok(x) => {
-                            self.tokens.next(); // consume number
-                            Ok(Expression::IntConst { value: x })
+                    } else {
+                        match s.parse::<i64>() {
+                            Ok(x) => Ok(Expression::IntConst { value: x }),
+                            Err(_) => Err(SyntaxError::with_pos(
+                                format!("Invalid int literal: {}", s),
+                                line,
+                                column,
+                            )),
                         }
-                        Err(_) => Err(SyntaxError::new(format!("Invalid int literal: {}", s))),
                     }
                 }
-            }
-            Some(lexer::Token {
-                item: TokenKind::If,
-                ..
-            }) => {
+                Some(Ok(t)) => Err(SyntaxError::with_pos(
+                    format!("Expected number literal, got {:?}", t.item),
+                    t.line,
+                    t.column,
+                )),
+                Some(Err(e)) => Err(e),
+                None => Err(SyntaxError::with_pos("Unexpected end of input", 0, 0)),
+            },
+            Some(TokenKind::If) => {
                 self.expect(lexer::TokenKind::If)?;
                 let condition_expr = self.parse_expression(1)?;
                 self.expect(lexer::TokenKind::Then)?;
                 let then_expr = self.parse_expr_block()?;
 
-                let else_expr =
-                    if self.tokens.peek().map(|t| t.item) == Some(lexer::TokenKind::Else) {
-                        self.expect(lexer::TokenKind::Else)?;
-                        self.parse_expr_block()?
-                    } else {
-                        vec![]
-                    };
+                let else_expr = if self.peek_token_kind()? == Some(lexer::TokenKind::Else) {
+                    self.expect(lexer::TokenKind::Else)?;
+                    self.parse_expr_block()?
+                } else {
+                    vec![]
+                };
 
                 self.expect(lexer::TokenKind::End)?;
 
@@ -271,10 +294,7 @@ impl<'a> Parser<'a> {
                     else_: else_expr,
                 })
             }
-            Some(lexer::Token {
-                item: TokenKind::While,
-                ..
-            }) => {
+            Some(TokenKind::While) => {
                 self.expect(lexer::TokenKind::While)?;
                 let condition_expr = self.parse_expression(1)?;
                 self.expect(lexer::TokenKind::Do)?;
@@ -286,13 +306,20 @@ impl<'a> Parser<'a> {
                     body: body_expr,
                 })
             }
-            None => Err(SyntaxError::new(
+            None => Err(SyntaxError::with_pos(
                 "Unexpected end of input while parsing expression",
+                0,
+                0,
             )),
-            _ => Err(SyntaxError::new(format!(
-                "Unexpected token in expression: {:?}",
-                self.tokens.peek()
-            ))),
+            _ => match self.tokens.peek() {
+                Some(Ok(t)) => Err(SyntaxError::with_pos(
+                    format!("Unexpected token in expression: {:?}", t.item),
+                    t.line,
+                    t.column,
+                )),
+                Some(Err(e)) => Err(SyntaxError::with_pos(e.message.clone(), e.line, e.column)),
+                None => Err(SyntaxError::with_pos("Unexpected end of input", 0, 0)),
+            },
         }?;
 
         // We have a choice between handling postfix operators ([], function calls, etc..)
@@ -301,18 +328,22 @@ impl<'a> Parser<'a> {
         // because postfix operators have the highest precedence. Note that
         // https://pdubroy.github.io/200andchange/precedence-climbing/ does it the other way
         // and puts function call handling in parse_expression.
+        // Sadly we need to clone() the peeked token here so we can release the (mut) borrow
+        // immediately and call other mut methods on the token iterator.
         loop {
-            match self.tokens.peek().map(|t| t.item) {
-                Some(lexer::TokenKind::LParen) => {
+            match self.tokens.peek().cloned() {
+                Some(Ok(Spanned {
+                    item: lexer::TokenKind::LParen,
+                    line,
+                    column,
+                })) => {
                     if let Expression::Variable { ref name } = expr {
                         self.tokens.next(); // consume '('
                         let mut args = Vec::new();
-                        if self.tokens.peek().map(|t| t.item) != Some(lexer::TokenKind::RParen) {
+                        if self.peek_token_kind()? != Some(lexer::TokenKind::RParen) {
                             loop {
                                 args.push(self.parse_expression(1)?);
-                                if self.tokens.peek().map(|t| t.item)
-                                    == Some(lexer::TokenKind::Comma)
-                                {
+                                if self.peek_token_kind()? == Some(lexer::TokenKind::Comma) {
                                     self.tokens.next(); // consume ','
                                 } else {
                                     break;
@@ -325,12 +356,17 @@ impl<'a> Parser<'a> {
                             args,
                         };
                     } else {
-                        return Err(SyntaxError::new(
+                        return Err(SyntaxError::with_pos(
                             "Only identifiers can be called as functions",
+                            line,
+                            column,
                         ));
                     }
                 }
-                Some(lexer::TokenKind::LBracket) => {
+                Some(Ok(Spanned {
+                    item: lexer::TokenKind::LBracket,
+                    ..
+                })) => {
                     self.expect(lexer::TokenKind::LBracket)?;
                     let index = self.parse_expression(1)?;
                     self.expect(lexer::TokenKind::RBracket)?;
@@ -339,10 +375,14 @@ impl<'a> Parser<'a> {
                         index: Box::new(index),
                     };
                 }
-                Some(lexer::TokenKind::Colon) => {
+                Some(Ok(Spanned {
+                    item: lexer::TokenKind::Colon,
+                    line,
+                    column,
+                })) => {
                     self.expect(lexer::TokenKind::Colon)?;
                     // I guess we could make special tokens for the tuple tags since they're a fixed set, but for now
-                    // they're parsed as variables.
+                    // they're initially parsed as variables and here we turn them into literal/cast AST nodes.
                     if let Expression::Variable { ref name } = expr {
                         let tag = match name.as_str() {
                             "rgba" => TupleTag::Rgba,
@@ -353,16 +393,12 @@ impl<'a> Parser<'a> {
                         };
 
                         // Handle either tuple literals rgba:[1,2,3,4] or casts ri:xy.
-                        if self.tokens.peek().map(|t| t.item) == Some(lexer::TokenKind::LBracket) {
+                        if self.peek_token_kind()? == Some(lexer::TokenKind::LBracket) {
                             self.expect(lexer::TokenKind::LBracket)?;
                             let mut args = Vec::new();
-                            while self.tokens.peek().map(|t| t.item)
-                                != Some(lexer::TokenKind::RBracket)
-                            {
+                            while self.peek_token_kind()? != Some(lexer::TokenKind::RBracket) {
                                 args.push(self.parse_expression(1)?);
-                                if self.tokens.peek().map(|t| t.item)
-                                    == Some(lexer::TokenKind::Comma)
-                                {
+                                if self.peek_token_kind()? == Some(lexer::TokenKind::Comma) {
                                     self.tokens.next(); // consume ','
                                 } else {
                                     break;
@@ -379,10 +415,11 @@ impl<'a> Parser<'a> {
                             }
                         }
                     } else {
-                        return Err(SyntaxError::new(format!(
-                            "Invalid cast: lhs is not a valid tuple tag: {:?}",
-                            expr
-                        )));
+                        return Err(SyntaxError::with_pos(
+                            format!("Invalid cast: lhs is not a valid tuple tag: {:?}", expr),
+                            line,
+                            column,
+                        ));
                     }
                 }
                 _ => break,
@@ -396,12 +433,12 @@ impl<'a> Parser<'a> {
         let mut atom_lhs = self.parse_atom()?;
 
         loop {
-            let peek = self.tokens.peek();
-            if peek.is_none() {
+            let peek_kind = self.peek_token_kind()?;
+            if peek_kind.is_none() {
                 break;
             }
 
-            let op_info = get_op_info(&peek.unwrap().item);
+            let op_info = get_op_info(&peek_kind.unwrap());
 
             if op_info.is_none() {
                 break;
@@ -414,7 +451,7 @@ impl<'a> Parser<'a> {
             }
 
             // Consume the current operator token.
-            self.tokens.next();
+            let op_token = self.tokens.next().unwrap()?;
 
             let next_min_precedence = match op_info.associativity {
                 Associativity::Left => op_info.precedence + 1,
@@ -432,10 +469,11 @@ impl<'a> Parser<'a> {
                         value: Box::new(atom_rhs),
                     });
                 } else {
-                    return Err(SyntaxError::new(format!(
-                        "Invalid assignment: lhs is not a variable: {:?}",
-                        atom_lhs
-                    )));
+                    return Err(SyntaxError::with_pos(
+                        format!("Invalid assignment: lhs is not a variable: {:?}", atom_lhs),
+                        op_token.line,
+                        op_token.column,
+                    ));
                 }
             } else {
                 atom_lhs = Expression::FunctionCall {
@@ -453,20 +491,14 @@ impl<'a> Parser<'a> {
         let mut expressions: Vec<Expression> = Vec::new();
 
         loop {
-            if matches!(
-                self.tokens.peek().map(|t| t.item),
-                Some(lexer::TokenKind::End)
-            ) {
+            if matches!(self.peek_token_kind()?, Some(lexer::TokenKind::End)) {
                 break;
             }
 
             let expr = self.parse_expression(1)?;
             expressions.push(expr);
 
-            if matches!(
-                self.tokens.peek().map(|t| t.item),
-                Some(lexer::TokenKind::Semicolon)
-            ) {
+            if matches!(self.peek_token_kind()?, Some(lexer::TokenKind::Semicolon)) {
                 self.tokens.next();
                 continue;
             } else {
@@ -782,6 +814,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_expr_assignment_error() -> Result<(), SyntaxError> {
+        let input = "1 = 2";
+        if let Err(e) = parse_as_expr(input) {
+            assert!(
+                e.message
+                    .contains("Invalid assignment: lhs is not a variable")
+            );
+            assert_eq!(e.line, 1);
+            assert_eq!(e.column, 3);
+            Ok(())
+        } else {
+            panic!("expected the parser to fail");
+        }
+    }
+
+    #[test]
     fn parse_expr_or() -> Result<(), SyntaxError> {
         let input = "x || 100";
         let ast = parse_as_expr(input)?;
@@ -838,7 +886,25 @@ mod tests {
         let input = "\nx + +";
         if let Err(e) = parse_as_expr(input) {
             assert!(e.message.contains("Unexpected token"));
-            assert!(e.message.contains("line: 2, column: 5"));
+            assert_eq!(e.line, 2);
+            assert_eq!(e.column, 5);
+            Ok(())
+        } else {
+            panic!("expected the parser to fail");
+        }
+    }
+
+    #[test]
+    fn parse_fn_call_error() -> Result<(), SyntaxError> {
+        let input = "1(1, 2, 3)";
+        if let Err(e) = parse_as_expr(input) {
+            dbg!(&e);
+            assert!(
+                e.message
+                    .contains("Only identifiers can be called as functions")
+            );
+            assert_eq!(e.line, 1);
+            assert_eq!(e.column, 2);
             Ok(())
         } else {
             panic!("expected the parser to fail");
@@ -889,5 +955,20 @@ mod tests {
         };
         assert_eq!(assign_expr, &ast_ref);
         Ok(())
+    }
+
+    #[test]
+    fn parse_module_error_eof() -> Result<(), SyntaxError> {
+        let input = "filter red ()
+            rgbColor(1, 0, 0)
+        ";
+        if let Err(e) = super::parse_module(input) {
+            assert!(e.message.contains("Unexpected end of input"));
+            assert_eq!(e.line, 0);
+            assert_eq!(e.column, 0);
+            Ok(())
+        } else {
+            panic!("expected the parser to fail");
+        }
     }
 }

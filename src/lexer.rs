@@ -5,8 +5,6 @@ https://craftinginterpreters.com/scanning-on-demand.html#a-token-at-a-time
 
 #![allow(dead_code)]
 
-use core::panic;
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spanned<T> {
     pub item: T,
@@ -154,7 +152,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn lex_number(&mut self) -> Option<Token<'a>> {
+    fn lex_number(&mut self) -> Token<'a> {
         // Integral part.
         while let Some(c) = self.peek() {
             if !c.is_digit(10) {
@@ -175,10 +173,10 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        Some(self.spanned(TokenKind::NumberLit(&self.input[self.start_pos..self.pos])))
+        self.spanned(TokenKind::NumberLit(&self.input[self.start_pos..self.pos]))
     }
 
-    fn lex_identifier(&mut self) -> Option<Token<'a>> {
+    fn lex_identifier(&mut self) -> Token<'a> {
         while let Some(c) = self.peek() {
             if !c.is_alphanumeric() && c != '_' {
                 break;
@@ -201,10 +199,10 @@ impl<'a> Lexer<'a> {
             "xor" => TokenKind::Xor,
             _ => TokenKind::Ident(&self.input[self.start_pos..self.pos]),
         };
-        Some(self.spanned(kind))
+        self.spanned(kind)
     }
 
-    pub fn next_token(&mut self) -> Option<Token<'a>> {
+    pub fn next_token(&mut self) -> Result<Option<Token<'a>>, crate::SyntaxError> {
         self.skip_whitespace();
 
         self.start_pos = self.pos;
@@ -262,7 +260,11 @@ impl<'a> Lexer<'a> {
                     if self.match_next('|') {
                         TokenKind::Or
                     } else {
-                        panic!("unexpected | without ||");
+                        return Err(crate::SyntaxError::with_pos(
+                            "Unexpected '|' without '||'",
+                            self.line,
+                            self.start_column,
+                        ));
                     }
                 }
 
@@ -270,30 +272,42 @@ impl<'a> Lexer<'a> {
                     if self.match_next('&') {
                         TokenKind::And
                     } else {
-                        panic!("unexpected & without &&");
+                        return Err(crate::SyntaxError::with_pos(
+                            "Unexpected '&' without '&&'",
+                            self.line,
+                            self.start_column,
+                        ));
                     }
                 }
 
-                x if x.is_digit(10) => return self.lex_number(),
+                x if x.is_digit(10) => return Ok(Some(self.lex_number())),
 
-                x if x.is_alphabetic() => return self.lex_identifier(),
+                x if x.is_alphabetic() => return Ok(Some(self.lex_identifier())),
 
                 _ => {
-                    panic!("lexer not implemented {:?}", c);
+                    return Err(crate::SyntaxError::with_pos(
+                        format!("Unexpected character {:?}", c),
+                        self.line,
+                        self.start_column,
+                    ));
                 }
             };
-            Some(self.spanned(kind))
+            Ok(Some(self.spanned(kind)))
         } else {
-            None
+            Ok(None)
         }
     }
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Token<'a>;
+    type Item = Result<Token<'a>, crate::SyntaxError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_token()
+        match self.next_token() {
+            Ok(Some(t)) => Some(Ok(t)),
+            Ok(None) => None,
+            Err(e) => Some(Err(e)),
+        }
     }
 }
 
@@ -303,7 +317,7 @@ mod tests {
 
     fn tokenize<'a>(input: &'a str) -> Vec<TokenKind<'a>> {
         let x = Lexer::new(input);
-        x.map(|s| s.item).collect()
+        x.map(|s| s.unwrap().item).collect()
     }
 
     #[test]
@@ -325,7 +339,7 @@ mod tests {
     fn test_span() {
         let s = "a\nb\n c";
         let lexer = Lexer::new(s);
-        let tokens = lexer.collect::<Vec<_>>();
+        let tokens: Vec<_> = lexer.map(|r| r.unwrap()).collect();
         assert_eq!(tokens.len(), 3);
         assert_eq!(tokens[0].line, 1);
         assert_eq!(tokens[0].column, 1);
