@@ -109,7 +109,14 @@ impl<'a> Lexer<'a> {
 
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.peek() {
-            if c.is_whitespace() {
+            if c == '#' {
+                while let Some(c) = self.peek() {
+                    if c == '\n' {
+                        break;
+                    }
+                    self.pos += c.len_utf8();
+                }
+            } else if c.is_whitespace() {
                 self.pos += c.len_utf8();
             } else {
                 break;
@@ -258,16 +265,16 @@ impl<'a> Iterator for Lexer<'a> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
-    fn tokenize(input: &str) -> Vec<Token> {
+    fn tokenize<'a>(input: &'a str) -> Vec<Token<'a>> {
         let x = Lexer::new(input);
         x.collect()
     }
 
     #[test]
-    fn test_peek() {
+    fn peek() {
         let s = "abc";
         let mut lexer = Lexer::new(s);
 
@@ -281,88 +288,116 @@ mod test {
         assert!(lexer.peek_next() == None);
     }
 
-    #[test]
-    fn test_simple() {
-        let s = "  (  )  ";
-        assert!(tokenize(s) == vec![Token::LParen, Token::RParen]);
+    macro_rules! check_lexer {
+    ($input:expr, [ $($token:expr),* $(,)? ]) => {
+        assert_eq!(
+            tokenize($input),
+            vec![ $($token),* ]
+        )
+        };
     }
 
     #[test]
-    fn test_two_chars() {
-        let s = "= == < <= > >= ! !=";
-        assert!(
-            tokenize(s)
-                == vec![
-                    Token::Assign,
-                    Token::Equal,
-                    Token::Less,
-                    Token::LessEqual,
-                    Token::Greater,
-                    Token::GreaterEqual,
-                    Token::Bang,
-                    Token::NotEqual,
-                ]
+    fn simple() {
+        check_lexer!("  (  )  ", [Token::LParen, Token::RParen]);
+    }
+
+    #[test]
+    fn two_chars() {
+        check_lexer!(
+            "= == < <= > >= ! !=",
+            [
+                Token::Assign,
+                Token::Equal,
+                Token::Less,
+                Token::LessEqual,
+                Token::Greater,
+                Token::GreaterEqual,
+                Token::Bang,
+                Token::NotEqual,
+            ]
         );
     }
 
     #[test]
-    fn test_integer_literal() {
-        let s = "1234";
-        assert!(tokenize(s) == vec![Token::NumberLit("1234")]);
+    fn integer_literal() {
+        check_lexer!("1234", [Token::NumberLit("1234")]);
     }
 
     #[test]
-    fn test_float_literal() {
-        let s = "1234.5678";
-        assert!(tokenize(s) == vec![Token::NumberLit("1234.5678")]);
+    fn float_literal() {
+        check_lexer!("1234.5678", [Token::NumberLit("1234.5678")]);
     }
 
     #[test]
-    fn test_identifier() {
-        let s = "filter hello";
-        assert!(tokenize(s) == vec![Token::Filter, Token::Ident("hello")]);
+    fn identifier() {
+        check_lexer!("filter hello", [Token::Filter, Token::Ident("hello")]);
     }
 
     #[test]
-    fn test_filter() {
-        let s = "filter red ()
-            rgbColor(1, 0, 0)
-        end";
-
-        assert!(
-            tokenize(s)
-                == vec![
-                    Token::Filter,
-                    Token::Ident("red"),
-                    Token::LParen,
-                    Token::RParen,
-                    Token::Ident("rgbColor"),
-                    Token::LParen,
-                    Token::NumberLit("1"),
-                    Token::Comma,
-                    Token::NumberLit("0"),
-                    Token::Comma,
-                    Token::NumberLit("0"),
-                    Token::RParen,
-                    Token::End,
-                ]
+    fn filter() {
+        check_lexer!(
+            "filter red ()
+                rgbColor(1, 0, 0)
+            end",
+            [
+                Token::Filter,
+                Token::Ident("red"),
+                Token::LParen,
+                Token::RParen,
+                Token::Ident("rgbColor"),
+                Token::LParen,
+                Token::NumberLit("1"),
+                Token::Comma,
+                Token::NumberLit("0"),
+                Token::Comma,
+                Token::NumberLit("0"),
+                Token::RParen,
+                Token::End,
+            ]
         );
     }
 
     #[test]
-    fn test_or() {
-        let s = "(a + b) || c";
-        assert!(
-            tokenize(s)
-                == vec![
-                    Token::LParen,
-                    Token::Ident("a"),
-                    Token::Plus,
-                    Token::Ident("b"),
-                    Token::RParen,
-                    Token::Or,
-                    Token::Ident("c"),
-                ]
+    fn or() {
+        check_lexer!(
+            "(a + b) || c",
+            [
+                Token::LParen,
+                Token::Ident("a"),
+                Token::Plus,
+                Token::Ident("b"),
+                Token::RParen,
+                Token::Or,
+                Token::Ident("c"),
+            ]
         );
+    }
+
+    #[test]
+    fn comment_start_of_line() {
+        check_lexer!(
+            "# a comment
+            filter red ()",
+            [
+                Token::Filter,
+                Token::Ident("red"),
+                Token::LParen,
+                Token::RParen
+            ]
+        )
+    }
+
+    #[test]
+    fn comment_rest_of_line() {
+        check_lexer!(
+            "filter red () # comment",
+            [
+                Token::Filter,
+                Token::Ident("red"),
+                Token::LParen,
+                Token::RParen
+            ]
+        )
     }
 }
