@@ -1,12 +1,30 @@
-use image::{Rgba, RgbaImage};
+use js_sys::Error as JsError;
 use wasm_bindgen::prelude::*;
 
+#[derive(Debug)]
+struct JsMathMapError(mathmap::MathMapError);
+
+impl From<JsMathMapError> for JsValue {
+    fn from(e: JsMathMapError) -> JsValue {
+        let msg = match e.0 {
+            mathmap::MathMapError::Parse(e) => format!("{}", e),
+        };
+        JsValue::from(JsError::new(&msg))
+    }
+}
+
 #[wasm_bindgen]
-pub fn make_image(script: &str) -> Vec<u8> {
+pub fn make_image(script: &str) -> Result<Vec<u8>, JsValue> {
     let im_w = 256;
-    let im_h = 256;
+    let im_h = im_w;
 
-    let mut buffers = mathmap::exec_mathmap_script(script.to_string(), im_w, im_h, 1).unwrap();
+    let mut buffers = mathmap::exec_mathmap_script(script.to_string(), im_w, im_h, 1)
+        .map_err(|e| JsValue::from(JsMathMapError(e)))?;
 
-    buffers.next().unwrap().into_raw()
+    let buffer = buffers
+        .next()
+        .ok_or_else(|| JsValue::from(js_sys::Error::new("no buffers returned")))?
+        .into_raw();
+
+    Ok(buffer)
 }

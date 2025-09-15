@@ -10,3 +10,4 @@ crate-type = ["cdylib"]
 wasm-bindgen = "0.2.101"
 image = { version = "0.25.8", default-features = false, features = ["png", "gif"] }
 mathmap = { path = ".." }
+js-sys = "0.3.78"

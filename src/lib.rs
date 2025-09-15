@@ -2,12 +2,19 @@ mod ast;
 mod interpreter;
 mod lexer;
 
+pub use ast::ParseError;
+
+#[derive(Debug)]
+pub enum MathMapError {
+    Parse(ParseError),
+}
+
 pub fn exec_mathmap_file(
     srcpath: &str,
     im_w: u32,
     im_h: u32,
     num_frames: i64,
-) -> Result<impl Iterator<Item = image::ImageBuffer<image::Rgba<u8>, Vec<u8>>>, String> {
+) -> Result<impl Iterator<Item = image::ImageBuffer<image::Rgba<u8>, Vec<u8>>>, MathMapError> {
     let src = std::fs::read_to_string(srcpath).unwrap();
     exec_mathmap_script(src, im_w, im_h, num_frames)
 }
@@ -17,8 +24,8 @@ pub fn exec_mathmap_script(
     im_w: u32,
     im_h: u32,
     num_frames: i64,
-) -> Result<impl Iterator<Item = image::ImageBuffer<image::Rgba<u8>, Vec<u8>>>, String> {
-    let module = ast::parse_module(&src).unwrap();
+) -> Result<impl Iterator<Item = image::ImageBuffer<image::Rgba<u8>, Vec<u8>>>, MathMapError> {
+    let module = ast::parse_module(&src).map_err(MathMapError::Parse)?;
     println!("{:#?}", module);
 
     let mut filters = module.filters;

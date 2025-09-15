@@ -104,6 +104,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "js-sys"
+version = "0.3.78"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c0b063578492ceec17683ef2f8c5e89121fbd0b172cbc280635ab7567db2738"
+dependencies = [
+ "once_cell",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "lexopt"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -128,6 +138,7 @@ name = "mathmap-wasm"
 version = "0.1.0"
 dependencies = [
  "image",
+ "js-sys",
  "mathmap",
  "wasm-bindgen",
 ]

@@ -20,6 +20,7 @@
 					generate the image. The rendering code runs entirely in your browser and no data is sent anywhere.</p>
 				<p>Hint: try playing with the example below.</p>
 			</div>
+			<div id="errorBox" style="display:none; width:90%; padding:0.8rem; border-radius:8px; background:#ffe6e6; color:#a40000; border:1px solid #ffb3b3;"></div>
 			<textarea id="inputBox"></textarea>
 			<button id="renderBtn">Render</button>
 		</div>
@@ -40,15 +41,44 @@
 			canvas.width = width;
 			canvas.height = height;
 
+			function setError(message) {
+				const box = document.getElementById("errorBox");
+				if (!message) {
+					box.style.display = "none";
+					box.textContent = "";
+					return;
+				}
+				box.textContent = message;
+				box.style.display = "block";
+			}
+
+			function extractMessage(e) {
+				if (!e) return "Unknown error";
+				// unwrap common JS/WASM error shapes
+				if (e instanceof Error) return e.message || String(e);
+				if (typeof e === "string") return e;
+				try {
+					return JSON.stringify(e);
+				} catch (_) {
+					return String(e);
+				}
+			}
+
 			function render() {
 				const text = document.getElementById("inputBox").value;
-				const data = make_image(text);
-				const imgData = new ImageData(
-					new Uint8ClampedArray(data),
-					width,
-					height
-				);
-				ctx.putImageData(imgData, 0, 0);
+				try {
+					const data = make_image(text);
+					const imgData = new ImageData(
+						new Uint8ClampedArray(data),
+						width,
+						height
+					);
+					ctx.putImageData(imgData, 0, 0);
+					setError(null);
+				} catch (e) {
+					console.error(e);
+					setError(extractMessage(e));
+				}
 			}
 
 			document.getElementById("inputBox").value = `\
