@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
+use crate::SyntaxError;
 use crate::lexer::{self, TokenKind};
-use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TupleTag {
@@ -143,27 +143,6 @@ pub struct Module {
     pub filters: Vec<Filter>,
 }
 
-#[derive(Debug)]
-pub struct ParseError {
-    pub message: String,
-}
-
-impl ParseError {
-    pub fn new(msg: impl Into<String>) -> Self {
-        ParseError {
-            message: msg.into(),
-        }
-    }
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Parse error: {}", self.message)
-    }
-}
-
-impl std::error::Error for ParseError {}
-
 pub struct Parser<'a> {
     tokens: std::iter::Peekable<lexer::Lexer<'a>>,
 }
@@ -175,22 +154,22 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect(&mut self, expected: lexer::TokenKind) -> Result<(), ParseError> {
+    fn expect(&mut self, expected: lexer::TokenKind) -> Result<(), SyntaxError> {
         let t = self.tokens.next();
         match t {
             Some(t) if t.item == expected => Ok(()),
-            Some(t) => Err(ParseError::new(format!(
+            Some(t) => Err(SyntaxError::new(format!(
                 "Expected {:?}, got {:?}",
                 expected, t
             ))),
-            None => Err(ParseError::new("Unexpected end of input")),
+            None => Err(SyntaxError::new("Unexpected end of input")),
         }
     }
 
-    fn expect_done(&mut self) -> Result<(), ParseError> {
+    fn expect_done(&mut self) -> Result<(), SyntaxError> {
         let t = self.tokens.next();
         match t {
-            Some(t) => Err(ParseError::new(format!(
+            Some(t) => Err(SyntaxError::new(format!(
                 "Expected end of input, got {:?}",
                 t
             ))),
@@ -198,19 +177,22 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn consume_ident(&mut self) -> Result<String, ParseError> {
+    fn consume_ident(&mut self) -> Result<String, SyntaxError> {
         let t = self.tokens.next();
         match t {
             Some(lexer::Token {
                 item: TokenKind::Ident(s),
                 ..
             }) => Ok(s.to_string()),
-            Some(t) => Err(ParseError::new(format!("Expected identifier, got {:?}", t))),
-            None => Err(ParseError::new("Unexpected end of input")),
+            Some(t) => Err(SyntaxError::new(format!(
+                "Expected identifier, got {:?}",
+                t
+            ))),
+            None => Err(SyntaxError::new("Unexpected end of input")),
         }
     }
 
-    fn parse_atom(&mut self) -> Result<Expression, ParseError> {
+    fn parse_atom(&mut self) -> Result<Expression, SyntaxError> {
         let mut expr = match self.tokens.peek() {
             Some(lexer::Token {
                 item: TokenKind::Minus,
@@ -252,7 +234,7 @@ impl<'a> Parser<'a> {
                             self.tokens.next(); // consume number
                             Ok(Expression::FloatConst { value: x })
                         }
-                        Err(_) => Err(ParseError::new(format!("Invalid float literal: {}", s))),
+                        Err(_) => Err(SyntaxError::new(format!("Invalid float literal: {}", s))),
                     }
                 } else {
                     match s.parse::<i64>() {
@@ -260,7 +242,7 @@ impl<'a> Parser<'a> {
                             self.tokens.next(); // consume number
                             Ok(Expression::IntConst { value: x })
                         }
-                        Err(_) => Err(ParseError::new(format!("Invalid int literal: {}", s))),
+                        Err(_) => Err(SyntaxError::new(format!("Invalid int literal: {}", s))),
                     }
                 }
             }
@@ -304,10 +286,10 @@ impl<'a> Parser<'a> {
                     body: body_expr,
                 })
             }
-            None => Err(ParseError::new(
+            None => Err(SyntaxError::new(
                 "Unexpected end of input while parsing expression",
             )),
-            _ => Err(ParseError::new(format!(
+            _ => Err(SyntaxError::new(format!(
                 "Unexpected token in expression: {:?}",
                 self.tokens.peek()
             ))),
@@ -343,7 +325,7 @@ impl<'a> Parser<'a> {
                             args,
                         };
                     } else {
-                        return Err(ParseError::new(
+                        return Err(SyntaxError::new(
                             "Only identifiers can be called as functions",
                         ));
                     }
@@ -397,7 +379,7 @@ impl<'a> Parser<'a> {
                             }
                         }
                     } else {
-                        return Err(ParseError::new(format!(
+                        return Err(SyntaxError::new(format!(
                             "Invalid cast: lhs is not a valid tuple tag: {:?}",
                             expr
                         )));
@@ -410,7 +392,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    pub fn parse_expression(&mut self, min_precedence: u8) -> Result<Expression, ParseError> {
+    pub fn parse_expression(&mut self, min_precedence: u8) -> Result<Expression, SyntaxError> {
         let mut atom_lhs = self.parse_atom()?;
 
         loop {
@@ -450,7 +432,7 @@ impl<'a> Parser<'a> {
                         value: Box::new(atom_rhs),
                     });
                 } else {
-                    return Err(ParseError::new(format!(
+                    return Err(SyntaxError::new(format!(
                         "Invalid assignment: lhs is not a variable: {:?}",
                         atom_lhs
                     )));
@@ -467,7 +449,7 @@ impl<'a> Parser<'a> {
     }
 
     // Parse a block of expressions separated by semicolon (for filters, if/while, etc..)
-    pub fn parse_expr_block(&mut self) -> Result<Vec<Expression>, ParseError> {
+    pub fn parse_expr_block(&mut self) -> Result<Vec<Expression>, SyntaxError> {
         let mut expressions: Vec<Expression> = Vec::new();
 
         loop {
@@ -495,7 +477,7 @@ impl<'a> Parser<'a> {
         Ok(expressions)
     }
 
-    fn parse_filter(&mut self) -> Result<Filter, ParseError> {
+    fn parse_filter(&mut self) -> Result<Filter, SyntaxError> {
         self.expect(lexer::TokenKind::Filter)?;
 
         let name = self.consume_ident()?;
@@ -513,7 +495,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_module(&mut self) -> Result<Module, ParseError> {
+    fn parse_module(&mut self) -> Result<Module, SyntaxError> {
         let mut filters: Vec<Filter> = Vec::new();
         while self.tokens.peek().is_some() {
             match self.parse_filter() {
@@ -526,7 +508,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub fn parse_module(input: &str) -> Result<Module, ParseError> {
+pub fn parse_module(input: &str) -> Result<Module, SyntaxError> {
     let mut parser = Parser::new(input);
     parser.parse_module()
 }
@@ -535,7 +517,7 @@ pub fn parse_module(input: &str) -> Result<Module, ParseError> {
 mod tests {
     use super::*;
 
-    fn parse_as_expr(input: &str) -> Result<Expression, ParseError> {
+    fn parse_as_expr(input: &str) -> Result<Expression, SyntaxError> {
         let mut parser = Parser::new(input);
         let ast = parser.parse_expression(1)?;
         parser.expect_done()?;
@@ -543,7 +525,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_numerical_expression() -> Result<(), ParseError> {
+    fn parse_numerical_expression() -> Result<(), SyntaxError> {
         let input = "1 + 2 * 3 / 4";
         let ast = parse_as_expr(input)?;
 
@@ -572,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expression_with_variable() -> Result<(), ParseError> {
+    fn parse_expression_with_variable() -> Result<(), SyntaxError> {
         let input = "x + 100";
         let ast = parse_as_expr(input)?;
 
@@ -591,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_function_call() -> Result<(), ParseError> {
+    fn parse_expr_function_call() -> Result<(), SyntaxError> {
         let input = "fn(100, x)";
         let ast = parse_as_expr(input)?;
 
@@ -610,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_index() -> Result<(), ParseError> {
+    fn parse_expr_index() -> Result<(), SyntaxError> {
         let input = "x[1]";
         let ast = parse_as_expr(input)?;
 
@@ -626,7 +608,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_index_2() -> Result<(), ParseError> {
+    fn parse_expr_index_2() -> Result<(), SyntaxError> {
         let input = "x + y[1 + z]";
         let ast = parse_as_expr(input)?;
 
@@ -658,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_index_3() -> Result<(), ParseError> {
+    fn parse_expr_index_3() -> Result<(), SyntaxError> {
         let input = "(x + y)[1 + z]";
         let ast = parse_as_expr(input)?;
 
@@ -690,7 +672,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_if() -> Result<(), ParseError> {
+    fn parse_expr_if() -> Result<(), SyntaxError> {
         let input = "if x < 100 then 100 else 200 end";
         let ast = parse_as_expr(input)?;
 
@@ -712,7 +694,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_if_multiple_exprs() -> Result<(), ParseError> {
+    fn parse_expr_if_multiple_exprs() -> Result<(), SyntaxError> {
         let input = "if x < 100 then y = 10; y else 200 end";
         let ast = parse_as_expr(input)?;
 
@@ -742,7 +724,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_while() -> Result<(), ParseError> {
+    fn parse_expr_while() -> Result<(), SyntaxError> {
         let input = "while x < 2 do y = 1; z = 2 end";
         let ast = parse_as_expr(input)?;
 
@@ -772,7 +754,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_unary() -> Result<(), ParseError> {
+    fn parse_expr_unary() -> Result<(), SyntaxError> {
         let input = "-x";
         let ast = parse_as_expr(input)?;
 
@@ -787,7 +769,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_assignment() -> Result<(), ParseError> {
+    fn parse_expr_assignment() -> Result<(), SyntaxError> {
         let input = "x = 100";
         let ast = parse_as_expr(input)?;
 
@@ -800,7 +782,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_or() -> Result<(), ParseError> {
+    fn parse_expr_or() -> Result<(), SyntaxError> {
         let input = "x || 100";
         let ast = parse_as_expr(input)?;
 
@@ -818,7 +800,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_and() -> Result<(), ParseError> {
+    fn parse_expr_and() -> Result<(), SyntaxError> {
         let input = "1 && 2";
         let ast = parse_as_expr(input)?;
 
@@ -834,7 +816,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_cast() -> Result<(), ParseError> {
+    fn parse_expr_cast() -> Result<(), SyntaxError> {
         let input = "rgba:[1,2,3,4]";
         let ast = parse_as_expr(input)?;
 
@@ -852,7 +834,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_error() -> Result<(), ParseError> {
+    fn parse_expr_error() -> Result<(), SyntaxError> {
         let input = "\nx + +";
         if let Err(e) = parse_as_expr(input) {
             assert!(e.message.contains("Unexpected token"));
@@ -864,7 +846,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_module() -> Result<(), ParseError> {
+    fn parse_module() -> Result<(), SyntaxError> {
         let input = "filter red ()
             rgbColor(1, 0, 0)
         end";
@@ -889,7 +871,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_module_2() -> Result<(), ParseError> {
+    fn parse_module_2() -> Result<(), SyntaxError> {
         let input = "filter red ()
             z = 1;
             rgbColor(z, 0, 0)

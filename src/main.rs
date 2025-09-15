@@ -1,7 +1,3 @@
-mod ast;
-mod interpreter;
-mod lexer;
-
 struct CliArgs {
     srcpath: String,
     num_frames: i64,
@@ -36,7 +32,7 @@ fn parse_args() -> Result<CliArgs, lexopt::Error> {
     })
 }
 
-fn main() -> Result<(), lexopt::Error> {
+fn main() -> anyhow::Result<()> {
     let args = parse_args()?;
 
     let im_w = 256;

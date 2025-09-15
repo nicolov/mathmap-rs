@@ -1,13 +1,10 @@
 mod ast;
+mod err;
 mod interpreter;
 mod lexer;
 
-pub use ast::ParseError;
-
-#[derive(Debug)]
-pub enum MathMapError {
-    Parse(ParseError),
-}
+pub use err::MathMapError;
+pub use err::SyntaxError;
 
 pub fn exec_mathmap_file(
     srcpath: &str,
