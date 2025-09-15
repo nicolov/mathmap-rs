@@ -265,20 +265,21 @@ impl<'a> Parser<'a> {
                 }
             }
             Some(lexer::Token {
-                item: TokenKind::If, ..
+                item: TokenKind::If,
+                ..
             }) => {
                 self.expect(lexer::TokenKind::If)?;
                 let condition_expr = self.parse_expression(1)?;
                 self.expect(lexer::TokenKind::Then)?;
                 let then_expr = self.parse_expr_block()?;
 
-                let else_expr = if self.tokens.peek().map(|t| t.item) == Some(lexer::TokenKind::Else)
-                {
-                    self.expect(lexer::TokenKind::Else)?;
-                    self.parse_expr_block()?
-                } else {
-                    vec![]
-                };
+                let else_expr =
+                    if self.tokens.peek().map(|t| t.item) == Some(lexer::TokenKind::Else) {
+                        self.expect(lexer::TokenKind::Else)?;
+                        self.parse_expr_block()?
+                    } else {
+                        vec![]
+                    };
 
                 self.expect(lexer::TokenKind::End)?;
 
@@ -327,7 +328,8 @@ impl<'a> Parser<'a> {
                         if self.tokens.peek().map(|t| t.item) != Some(lexer::TokenKind::RParen) {
                             loop {
                                 args.push(self.parse_expression(1)?);
-                                if self.tokens.peek().map(|t| t.item) == Some(lexer::TokenKind::Comma)
+                                if self.tokens.peek().map(|t| t.item)
+                                    == Some(lexer::TokenKind::Comma)
                                 {
                                     self.tokens.next(); // consume ','
                                 } else {
@@ -376,7 +378,8 @@ impl<'a> Parser<'a> {
                                 != Some(lexer::TokenKind::RBracket)
                             {
                                 args.push(self.parse_expression(1)?);
-                                if self.tokens.peek().map(|t| t.item) == Some(lexer::TokenKind::Comma)
+                                if self.tokens.peek().map(|t| t.item)
+                                    == Some(lexer::TokenKind::Comma)
                                 {
                                     self.tokens.next(); // consume ','
                                 } else {
@@ -532,13 +535,17 @@ pub fn parse_module(input: &str) -> Result<Module, ParseError> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_parse_numerical_expression() {
-        let input = "1 + 2 * 3 / 4";
+    fn parse_as_expr(input: &str) -> Result<Expression, ParseError> {
         let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1)?;
+        parser.expect_done()?;
+        Ok(ast)
+    }
 
-        let ast = parser.parse_expression(1).unwrap();
-        parser.expect_done().unwrap();
+    #[test]
+    fn parse_numerical_expression() -> Result<(), ParseError> {
+        let input = "1 + 2 * 3 / 4";
+        let ast = parse_as_expr(input)?;
 
         let ast_ref = Expression::FunctionCall {
             name: "__add".to_string(),
@@ -561,14 +568,13 @@ mod tests {
         };
 
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expression_with_variable() {
+    fn parse_expression_with_variable() -> Result<(), ParseError> {
         let input = "x + 100";
-        let mut parser = Parser::new(input);
-
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parse_as_expr(input)?;
 
         let ast_ref = Expression::FunctionCall {
             name: "__add".to_string(),
@@ -581,14 +587,13 @@ mod tests {
         };
 
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expr_function_call() {
+    fn parse_expr_function_call() -> Result<(), ParseError> {
         let input = "fn(100, x)";
-        let mut parser = Parser::new(input);
-
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parse_as_expr(input)?;
 
         let ast_ref = Expression::FunctionCall {
             name: "fn".to_string(),
@@ -601,15 +606,13 @@ mod tests {
         };
 
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expr_index() {
+    fn parse_expr_index() -> Result<(), ParseError> {
         let input = "x[1]";
-        let mut parser = Parser::new(input);
-
-        let ast = parser.parse_expression(1).unwrap();
-        parser.expect_done().unwrap();
+        let ast = parse_as_expr(input)?;
 
         let ast_ref = Expression::Index {
             expr: Box::new(Expression::Variable {
@@ -619,15 +622,13 @@ mod tests {
         };
 
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expr_index_2() {
+    fn parse_expr_index_2() -> Result<(), ParseError> {
         let input = "x + y[1 + z]";
-        let mut parser = Parser::new(input);
-
-        let ast = parser.parse_expression(1).unwrap();
-        parser.expect_done().unwrap();
+        let ast = parse_as_expr(input)?;
 
         let ast_ref = Expression::FunctionCall {
             name: "__add".to_string(),
@@ -653,15 +654,13 @@ mod tests {
         };
 
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expr_index_3() {
+    fn parse_expr_index_3() -> Result<(), ParseError> {
         let input = "(x + y)[1 + z]";
-        let mut parser = Parser::new(input);
-
-        let ast = parser.parse_expression(1).unwrap();
-        parser.expect_done().unwrap();
+        let ast = parse_as_expr(input)?;
 
         let ast_ref = Expression::Index {
             expr: Box::new(Expression::FunctionCall {
@@ -687,13 +686,14 @@ mod tests {
         };
 
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expr_if() {
+    fn parse_expr_if() -> Result<(), ParseError> {
         let input = "if x < 100 then 100 else 200 end";
-        let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parse_as_expr(input)?;
+
         let ast_ref = Expression::If {
             condition: Box::new(Expression::FunctionCall {
                 name: "__less".to_string(),
@@ -708,13 +708,14 @@ mod tests {
             else_: vec![Expression::IntConst { value: 200 }],
         };
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expr_if_multiple_exprs() {
+    fn parse_expr_if_multiple_exprs() -> Result<(), ParseError> {
         let input = "if x < 100 then y = 10; y else 200 end";
-        let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parse_as_expr(input)?;
+
         let ast_ref = Expression::If {
             condition: Box::new(Expression::FunctionCall {
                 name: "__less".to_string(),
@@ -730,18 +731,21 @@ mod tests {
                     name: "y".to_string(),
                     value: Box::new(Expression::IntConst { value: 10 }),
                 },
-                Expression::Variable { name: "y".to_string() },
+                Expression::Variable {
+                    name: "y".to_string(),
+                },
             ],
             else_: vec![Expression::IntConst { value: 200 }],
         };
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expr_while() {
+    fn parse_expr_while() -> Result<(), ParseError> {
         let input = "while x < 2 do y = 1; z = 2 end";
-        let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parse_as_expr(input)?;
+
         let ast_ref = Expression::While {
             condition: Box::new(Expression::FunctionCall {
                 name: "__less".to_string(),
@@ -764,14 +768,14 @@ mod tests {
             ],
         };
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
-
     #[test]
-    fn test_parse_expr_unary() {
+    fn parse_expr_unary() -> Result<(), ParseError> {
         let input = "-x";
-        let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parse_as_expr(input)?;
+
         let ast_ref = Expression::FunctionCall {
             name: "__neg".to_string(),
             args: vec![Expression::Variable {
@@ -779,25 +783,27 @@ mod tests {
             }],
         };
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expr_assignment() {
+    fn parse_expr_assignment() -> Result<(), ParseError> {
         let input = "x = 100";
-        let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parse_as_expr(input)?;
+
         let ast_ref = Expression::Assignment {
             name: "x".to_string(),
             value: Box::new(Expression::IntConst { value: 100 }),
         };
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expr_or() {
+    fn parse_expr_or() -> Result<(), ParseError> {
         let input = "x || 100";
-        let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parse_as_expr(input)?;
+
         let ast_ref = Expression::FunctionCall {
             name: "__or".to_string(),
             args: vec![
@@ -808,13 +814,14 @@ mod tests {
             ],
         };
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expr_and() {
+    fn parse_expr_and() -> Result<(), ParseError> {
         let input = "1 && 2";
-        let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parse_as_expr(input)?;
+
         let ast_ref = Expression::FunctionCall {
             name: "__and".to_string(),
             args: vec![
@@ -823,13 +830,14 @@ mod tests {
             ],
         };
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_expr_cast() {
+    fn parse_expr_cast() -> Result<(), ParseError> {
         let input = "rgba:[1,2,3,4]";
-        let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parse_as_expr(input)?;
+
         let ast_ref = Expression::TupleConst {
             tag: TupleTag::Rgba,
             values: vec![
@@ -840,15 +848,27 @@ mod tests {
             ],
         };
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_module() {
+    fn parse_expr_error() -> Result<(), ParseError> {
+        let input = "\nx + +";
+        if let Err(e) = parse_as_expr(input) {
+            assert!(e.message.contains("Unexpected token"));
+            assert!(e.message.contains("line: 2, column: 5"));
+            Ok(())
+        } else {
+            panic!("expected the parser to fail");
+        }
+    }
+
+    #[test]
+    fn parse_module() -> Result<(), ParseError> {
         let input = "filter red ()
             rgbColor(1, 0, 0)
         end";
-
-        let ast = parse_module(input).unwrap();
+        let ast = super::parse_module(input)?;
 
         let ast_ref = Module {
             filters: vec![Filter {
@@ -865,16 +885,16 @@ mod tests {
         };
 
         assert_eq!(ast, ast_ref);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_module_2() {
+    fn parse_module_2() -> Result<(), ParseError> {
         let input = "filter red ()
             z = 1;
             rgbColor(z, 0, 0)
         end";
-
-        let ast = parse_module(input).unwrap();
+        let ast = super::parse_module(input)?;
 
         assert!(ast.filters.len() == 1);
         assert!(ast.filters[0].name == "red");
@@ -886,5 +906,6 @@ mod tests {
             value: Box::new(Expression::IntConst { value: 1 }),
         };
         assert_eq!(assign_expr, &ast_ref);
+        Ok(())
     }
 }
