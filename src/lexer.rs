@@ -7,8 +7,15 @@ https://craftinginterpreters.com/scanning-on-demand.html#a-token-at-a-time
 
 use core::panic;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Spanned<T> {
+    pub item: T,
+    pub line: usize,
+    pub column: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Token<'a> {
+pub enum TokenKind<'a> {
     Ident(&'a str),
     StringLit(&'a str),
     NumberLit(&'a str),
@@ -62,10 +69,15 @@ pub enum Token<'a> {
     RBracket,
 }
 
+pub type Token<'a> = Spanned<TokenKind<'a>>;
+
 pub struct Lexer<'a> {
     input: &'a str,
     pos: usize,
     start_pos: usize,
+    line: usize,
+    column: usize,
+    start_column: usize,
 }
 
 impl<'a> Lexer<'a> {
@@ -74,6 +86,9 @@ impl<'a> Lexer<'a> {
             input: input,
             pos: 0,
             start_pos: 0,
+            line: 1,
+            column: 1,
+            start_column: 1,
         }
     }
 
@@ -93,6 +108,12 @@ impl<'a> Lexer<'a> {
         let x = self.peek();
         if let Some(c) = x {
             self.pos += c.len_utf8();
+            if c == '\n' {
+                self.line += 1;
+                self.column = 1;
+            } else {
+                self.column += 1;
+            }
         }
         x
     }
@@ -101,6 +122,7 @@ impl<'a> Lexer<'a> {
         if let Some(next) = self.peek() {
             if next == expected {
                 self.pos += expected.len_utf8();
+                self.column += 1;
                 return true;
             }
         }
@@ -114,13 +136,21 @@ impl<'a> Lexer<'a> {
                     if c == '\n' {
                         break;
                     }
-                    self.pos += c.len_utf8();
+                    self.advance();
                 }
             } else if c.is_whitespace() {
-                self.pos += c.len_utf8();
+                self.advance();
             } else {
                 break;
             }
+        }
+    }
+
+    fn spanned(&self, item: TokenKind<'a>) -> Token<'a> {
+        Token {
+            item,
+            line: self.line,
+            column: self.start_column,
         }
     }
 
@@ -130,7 +160,7 @@ impl<'a> Lexer<'a> {
             if !c.is_digit(10) {
                 break;
             }
-            self.pos += c.len_utf8();
+            self.advance();
         }
 
         // Fractional part.
@@ -141,11 +171,11 @@ impl<'a> Lexer<'a> {
                 if !c.is_digit(10) {
                     break;
                 }
-                self.pos += c.len_utf8();
+                self.advance();
             }
         }
 
-        Some(Token::NumberLit(&self.input[self.start_pos..self.pos]))
+        Some(self.spanned(TokenKind::NumberLit(&self.input[self.start_pos..self.pos])))
     }
 
     fn lex_identifier(&mut self) -> Option<Token<'a>> {
@@ -153,82 +183,84 @@ impl<'a> Lexer<'a> {
             if !c.is_alphanumeric() && c != '_' {
                 break;
             }
-            self.pos += c.len_utf8();
+            self.advance();
         }
 
         let text = &self.input[self.start_pos..self.pos];
 
-        match text {
-            "filter" => Some(Token::Filter),
+        let kind = match text {
+            "filter" => TokenKind::Filter,
 
-            "if" => Some(Token::If),
-            "then" => Some(Token::Then),
-            "else" => Some(Token::Else),
-            "end" => Some(Token::End),
-            "while" => Some(Token::While),
-            "do" => Some(Token::Do),
-            "for" => Some(Token::For),
-            "xor" => Some(Token::Xor),
-            _ => Some(Token::Ident(&self.input[self.start_pos..self.pos])),
-        }
+            "if" => TokenKind::If,
+            "then" => TokenKind::Then,
+            "else" => TokenKind::Else,
+            "end" => TokenKind::End,
+            "while" => TokenKind::While,
+            "do" => TokenKind::Do,
+            "for" => TokenKind::For,
+            "xor" => TokenKind::Xor,
+            _ => TokenKind::Ident(&self.input[self.start_pos..self.pos]),
+        };
+        Some(self.spanned(kind))
     }
 
     pub fn next_token(&mut self) -> Option<Token<'a>> {
         self.skip_whitespace();
 
         self.start_pos = self.pos;
+        self.start_column = self.column;
 
         if let Some(c) = self.advance() {
-            match c {
-                '(' => Some(Token::LParen),
-                ')' => Some(Token::RParen),
-                '[' => Some(Token::LBracket),
-                ']' => Some(Token::RBracket),
-                ';' => Some(Token::Semicolon),
-                ',' => Some(Token::Comma),
-                ':' => Some(Token::Colon),
-                '+' => Some(Token::Plus),
-                '-' => Some(Token::Minus),
-                '*' => Some(Token::Star),
-                '/' => Some(Token::Slash),
-                '%' => Some(Token::Percent),
-                '^' => Some(Token::Caret),
+            let kind = match c {
+                '(' => TokenKind::LParen,
+                ')' => TokenKind::RParen,
+                '[' => TokenKind::LBracket,
+                ']' => TokenKind::RBracket,
+                ';' => TokenKind::Semicolon,
+                ',' => TokenKind::Comma,
+                ':' => TokenKind::Colon,
+                '+' => TokenKind::Plus,
+                '-' => TokenKind::Minus,
+                '*' => TokenKind::Star,
+                '/' => TokenKind::Slash,
+                '%' => TokenKind::Percent,
+                '^' => TokenKind::Caret,
 
                 '!' => {
                     if self.match_next('=') {
-                        Some(Token::NotEqual)
+                        TokenKind::NotEqual
                     } else {
-                        Some(Token::Bang)
+                        TokenKind::Bang
                     }
                 }
 
                 '=' => {
                     if self.match_next('=') {
-                        Some(Token::Equal)
+                        TokenKind::Equal
                     } else {
-                        Some(Token::Assign)
+                        TokenKind::Assign
                     }
                 }
 
                 '<' => {
                     if self.match_next('=') {
-                        Some(Token::LessEqual)
+                        TokenKind::LessEqual
                     } else {
-                        Some(Token::Less)
+                        TokenKind::Less
                     }
                 }
 
                 '>' => {
                     if self.match_next('=') {
-                        Some(Token::GreaterEqual)
+                        TokenKind::GreaterEqual
                     } else {
-                        Some(Token::Greater)
+                        TokenKind::Greater
                     }
                 }
 
                 '|' => {
                     if self.match_next('|') {
-                        Some(Token::Or)
+                        TokenKind::Or
                     } else {
                         panic!("unexpected | without ||");
                     }
@@ -236,20 +268,21 @@ impl<'a> Lexer<'a> {
 
                 '&' => {
                     if self.match_next('&') {
-                        Some(Token::And)
+                        TokenKind::And
                     } else {
                         panic!("unexpected & without &&");
                     }
                 }
 
-                x if x.is_digit(10) => self.lex_number(),
+                x if x.is_digit(10) => return self.lex_number(),
 
-                x if x.is_alphabetic() => self.lex_identifier(),
+                x if x.is_alphabetic() => return self.lex_identifier(),
 
                 _ => {
                     panic!("lexer not implemented {:?}", c);
                 }
-            }
+            };
+            Some(self.spanned(kind))
         } else {
             None
         }
@@ -268,9 +301,9 @@ impl<'a> Iterator for Lexer<'a> {
 mod tests {
     use super::*;
 
-    fn tokenize<'a>(input: &'a str) -> Vec<Token<'a>> {
+    fn tokenize<'a>(input: &'a str) -> Vec<TokenKind<'a>> {
         let x = Lexer::new(input);
-        x.collect()
+        x.map(|s| s.item).collect()
     }
 
     #[test]
@@ -288,6 +321,20 @@ mod tests {
         assert!(lexer.peek_next() == None);
     }
 
+    #[test]
+    fn test_span() {
+        let s = "a\nb\n c";
+        let lexer = Lexer::new(s);
+        let tokens = lexer.collect::<Vec<_>>();
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0].line, 1);
+        assert_eq!(tokens[0].column, 1);
+        assert_eq!(tokens[1].line, 2);
+        assert_eq!(tokens[1].column, 1);
+        assert_eq!(tokens[2].line, 3);
+        assert_eq!(tokens[2].column, 2);
+    }
+
     macro_rules! check_lexer {
     ($input:expr, [ $($token:expr),* $(,)? ]) => {
         assert_eq!(
@@ -299,7 +346,7 @@ mod tests {
 
     #[test]
     fn simple() {
-        check_lexer!("  (  )  ", [Token::LParen, Token::RParen]);
+        check_lexer!("  (  )  ", [TokenKind::LParen, TokenKind::RParen]);
     }
 
     #[test]
@@ -307,31 +354,34 @@ mod tests {
         check_lexer!(
             "= == < <= > >= ! !=",
             [
-                Token::Assign,
-                Token::Equal,
-                Token::Less,
-                Token::LessEqual,
-                Token::Greater,
-                Token::GreaterEqual,
-                Token::Bang,
-                Token::NotEqual,
+                TokenKind::Assign,
+                TokenKind::Equal,
+                TokenKind::Less,
+                TokenKind::LessEqual,
+                TokenKind::Greater,
+                TokenKind::GreaterEqual,
+                TokenKind::Bang,
+                TokenKind::NotEqual,
             ]
         );
     }
 
     #[test]
     fn integer_literal() {
-        check_lexer!("1234", [Token::NumberLit("1234")]);
+        check_lexer!("1234", [TokenKind::NumberLit("1234")]);
     }
 
     #[test]
     fn float_literal() {
-        check_lexer!("1234.5678", [Token::NumberLit("1234.5678")]);
+        check_lexer!("1234.5678", [TokenKind::NumberLit("1234.5678")]);
     }
 
     #[test]
     fn identifier() {
-        check_lexer!("filter hello", [Token::Filter, Token::Ident("hello")]);
+        check_lexer!(
+            "filter hello",
+            [TokenKind::Filter, TokenKind::Ident("hello")]
+        );
     }
 
     #[test]
@@ -341,19 +391,19 @@ mod tests {
                 rgbColor(1, 0, 0)
             end",
             [
-                Token::Filter,
-                Token::Ident("red"),
-                Token::LParen,
-                Token::RParen,
-                Token::Ident("rgbColor"),
-                Token::LParen,
-                Token::NumberLit("1"),
-                Token::Comma,
-                Token::NumberLit("0"),
-                Token::Comma,
-                Token::NumberLit("0"),
-                Token::RParen,
-                Token::End,
+                TokenKind::Filter,
+                TokenKind::Ident("red"),
+                TokenKind::LParen,
+                TokenKind::RParen,
+                TokenKind::Ident("rgbColor"),
+                TokenKind::LParen,
+                TokenKind::NumberLit("1"),
+                TokenKind::Comma,
+                TokenKind::NumberLit("0"),
+                TokenKind::Comma,
+                TokenKind::NumberLit("0"),
+                TokenKind::RParen,
+                TokenKind::End,
             ]
         );
     }
@@ -363,13 +413,13 @@ mod tests {
         check_lexer!(
             "(a + b) || c",
             [
-                Token::LParen,
-                Token::Ident("a"),
-                Token::Plus,
-                Token::Ident("b"),
-                Token::RParen,
-                Token::Or,
-                Token::Ident("c"),
+                TokenKind::LParen,
+                TokenKind::Ident("a"),
+                TokenKind::Plus,
+                TokenKind::Ident("b"),
+                TokenKind::RParen,
+                TokenKind::Or,
+                TokenKind::Ident("c"),
             ]
         );
     }
@@ -380,10 +430,10 @@ mod tests {
             "# a comment
             filter red ()",
             [
-                Token::Filter,
-                Token::Ident("red"),
-                Token::LParen,
-                Token::RParen
+                TokenKind::Filter,
+                TokenKind::Ident("red"),
+                TokenKind::LParen,
+                TokenKind::RParen
             ]
         )
     }
@@ -393,10 +443,10 @@ mod tests {
         check_lexer!(
             "filter red () # comment",
             [
-                Token::Filter,
-                Token::Ident("red"),
-                Token::LParen,
-                Token::RParen
+                TokenKind::Filter,
+                TokenKind::Ident("red"),
+                TokenKind::LParen,
+                TokenKind::RParen
             ]
         )
     }

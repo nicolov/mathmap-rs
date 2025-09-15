@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::lexer;
+use crate::lexer::{self, TokenKind};
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,54 +33,54 @@ enum Associativity {
     Right,
 }
 
-fn get_op_info(op: &lexer::Token) -> Option<OpInfo> {
+fn get_op_info(op: &lexer::TokenKind) -> Option<OpInfo> {
     match op {
-        lexer::Token::Assign => Some(OpInfo {
+        lexer::TokenKind::Assign => Some(OpInfo {
             precedence: 2,
             associativity: Associativity::Right,
             name: "__assign",
         }),
-        lexer::Token::And => Some(OpInfo {
+        lexer::TokenKind::And => Some(OpInfo {
             precedence: 3,
             associativity: Associativity::Left,
             name: "__and",
         }),
-        lexer::Token::Or => Some(OpInfo {
+        lexer::TokenKind::Or => Some(OpInfo {
             precedence: 3,
             associativity: Associativity::Left,
             name: "__or",
         }),
-        lexer::Token::Less => Some(OpInfo {
+        lexer::TokenKind::Less => Some(OpInfo {
             precedence: 4,
             associativity: Associativity::Left,
             name: "__less",
         }),
-        lexer::Token::LessEqual => Some(OpInfo {
+        lexer::TokenKind::LessEqual => Some(OpInfo {
             precedence: 4,
             associativity: Associativity::Left,
             name: "__lessequal",
         }),
-        lexer::Token::Plus => Some(OpInfo {
+        lexer::TokenKind::Plus => Some(OpInfo {
             precedence: 5,
             associativity: Associativity::Left,
             name: "__add",
         }),
-        lexer::Token::Minus => Some(OpInfo {
+        lexer::TokenKind::Minus => Some(OpInfo {
             precedence: 5,
             associativity: Associativity::Left,
             name: "__sub",
         }),
-        lexer::Token::Star => Some(OpInfo {
+        lexer::TokenKind::Star => Some(OpInfo {
             precedence: 6,
             associativity: Associativity::Left,
             name: "__mul",
         }),
-        lexer::Token::Slash => Some(OpInfo {
+        lexer::TokenKind::Slash => Some(OpInfo {
             precedence: 6,
             associativity: Associativity::Left,
             name: "__div",
         }),
-        lexer::Token::Percent => Some(OpInfo {
+        lexer::TokenKind::Percent => Some(OpInfo {
             precedence: 6,
             associativity: Associativity::Left,
             name: "__mod",
@@ -175,10 +175,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect(&mut self, expected: lexer::Token) -> Result<(), ParseError> {
+    fn expect(&mut self, expected: lexer::TokenKind) -> Result<(), ParseError> {
         let t = self.tokens.next();
         match t {
-            Some(t) if t == expected => Ok(()),
+            Some(t) if t.item == expected => Ok(()),
             Some(t) => Err(ParseError::new(format!(
                 "Expected {:?}, got {:?}",
                 expected, t
@@ -201,7 +201,10 @@ impl<'a> Parser<'a> {
     fn consume_ident(&mut self) -> Result<String, ParseError> {
         let t = self.tokens.next();
         match t {
-            Some(lexer::Token::Ident(s)) => Ok(s.to_string()),
+            Some(lexer::Token {
+                item: TokenKind::Ident(s),
+                ..
+            }) => Ok(s.to_string()),
             Some(t) => Err(ParseError::new(format!("Expected identifier, got {:?}", t))),
             None => Err(ParseError::new("Unexpected end of input")),
         }
@@ -209,7 +212,10 @@ impl<'a> Parser<'a> {
 
     fn parse_atom(&mut self) -> Result<Expression, ParseError> {
         let mut expr = match self.tokens.peek() {
-            Some(lexer::Token::Minus) => {
+            Some(lexer::Token {
+                item: TokenKind::Minus,
+                ..
+            }) => {
                 self.tokens.next();
                 let operand = self.parse_expression(100)?;
                 let args = vec![operand];
@@ -218,19 +224,28 @@ impl<'a> Parser<'a> {
                     args,
                 })
             }
-            Some(lexer::Token::LParen) => {
-                self.expect(lexer::Token::LParen)?;
+            Some(lexer::Token {
+                item: TokenKind::LParen,
+                ..
+            }) => {
+                self.expect(lexer::TokenKind::LParen)?;
                 // Start parsing a subexpression inside parentheses.
                 let subexpr = self.parse_expression(1)?;
-                self.expect(lexer::Token::RParen)?;
+                self.expect(lexer::TokenKind::RParen)?;
                 Ok(subexpr)
             }
-            Some(lexer::Token::Ident(s)) => {
+            Some(lexer::Token {
+                item: TokenKind::Ident(s),
+                ..
+            }) => {
                 let name = s.to_string();
                 self.tokens.next();
                 Ok(Expression::Variable { name: name })
             }
-            Some(lexer::Token::NumberLit(s)) => {
+            Some(lexer::Token {
+                item: TokenKind::NumberLit(s),
+                ..
+            }) => {
                 if s.contains(".") {
                     match s.parse::<f32>() {
                         Ok(x) => {
@@ -249,20 +264,23 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            Some(lexer::Token::If) => {
-                self.expect(lexer::Token::If)?;
+            Some(lexer::Token {
+                item: TokenKind::If, ..
+            }) => {
+                self.expect(lexer::TokenKind::If)?;
                 let condition_expr = self.parse_expression(1)?;
-                self.expect(lexer::Token::Then)?;
+                self.expect(lexer::TokenKind::Then)?;
                 let then_expr = self.parse_expr_block()?;
 
-                let else_expr = if self.tokens.peek() == Some(&lexer::Token::Else) {
-                    self.expect(lexer::Token::Else)?;
+                let else_expr = if self.tokens.peek().map(|t| t.item) == Some(lexer::TokenKind::Else)
+                {
+                    self.expect(lexer::TokenKind::Else)?;
                     self.parse_expr_block()?
                 } else {
                     vec![]
                 };
 
-                self.expect(lexer::Token::End)?;
+                self.expect(lexer::TokenKind::End)?;
 
                 Ok(Expression::If {
                     condition: Box::new(condition_expr),
@@ -270,12 +288,15 @@ impl<'a> Parser<'a> {
                     else_: else_expr,
                 })
             }
-            Some(lexer::Token::While) => {
-                self.expect(lexer::Token::While)?;
+            Some(lexer::Token {
+                item: TokenKind::While,
+                ..
+            }) => {
+                self.expect(lexer::TokenKind::While)?;
                 let condition_expr = self.parse_expression(1)?;
-                self.expect(lexer::Token::Do)?;
+                self.expect(lexer::TokenKind::Do)?;
                 let body_expr = self.parse_expr_block()?;
-                self.expect(lexer::Token::End)?;
+                self.expect(lexer::TokenKind::End)?;
 
                 Ok(Expression::While {
                     condition: Box::new(condition_expr),
@@ -298,22 +319,23 @@ impl<'a> Parser<'a> {
         // https://pdubroy.github.io/200andchange/precedence-climbing/ does it the other way
         // and puts function call handling in parse_expression.
         loop {
-            match self.tokens.peek() {
-                Some(lexer::Token::LParen) => {
+            match self.tokens.peek().map(|t| t.item) {
+                Some(lexer::TokenKind::LParen) => {
                     if let Expression::Variable { ref name } = expr {
                         self.tokens.next(); // consume '('
                         let mut args = Vec::new();
-                        if self.tokens.peek() != Some(&lexer::Token::RParen) {
+                        if self.tokens.peek().map(|t| t.item) != Some(lexer::TokenKind::RParen) {
                             loop {
                                 args.push(self.parse_expression(1)?);
-                                if self.tokens.peek() == Some(&lexer::Token::Comma) {
+                                if self.tokens.peek().map(|t| t.item) == Some(lexer::TokenKind::Comma)
+                                {
                                     self.tokens.next(); // consume ','
                                 } else {
                                     break;
                                 }
                             }
                         }
-                        self.expect(lexer::Token::RParen)?;
+                        self.expect(lexer::TokenKind::RParen)?;
                         expr = Expression::FunctionCall {
                             name: name.clone(),
                             args,
@@ -324,17 +346,17 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 }
-                Some(lexer::Token::LBracket) => {
-                    self.expect(lexer::Token::LBracket)?;
+                Some(lexer::TokenKind::LBracket) => {
+                    self.expect(lexer::TokenKind::LBracket)?;
                     let index = self.parse_expression(1)?;
-                    self.expect(lexer::Token::RBracket)?;
+                    self.expect(lexer::TokenKind::RBracket)?;
                     expr = Expression::Index {
                         expr: Box::new(expr),
                         index: Box::new(index),
                     };
                 }
-                Some(lexer::Token::Colon) => {
-                    self.expect(lexer::Token::Colon)?;
+                Some(lexer::TokenKind::Colon) => {
+                    self.expect(lexer::TokenKind::Colon)?;
                     // I guess we could make special tokens for the tuple tags since they're a fixed set, but for now
                     // they're parsed as variables.
                     if let Expression::Variable { ref name } = expr {
@@ -347,18 +369,21 @@ impl<'a> Parser<'a> {
                         };
 
                         // Handle either tuple literals rgba:[1,2,3,4] or casts ri:xy.
-                        if self.tokens.peek() == Some(&lexer::Token::LBracket) {
-                            self.expect(lexer::Token::LBracket)?;
+                        if self.tokens.peek().map(|t| t.item) == Some(lexer::TokenKind::LBracket) {
+                            self.expect(lexer::TokenKind::LBracket)?;
                             let mut args = Vec::new();
-                            while self.tokens.peek() != Some(&lexer::Token::RBracket) {
+                            while self.tokens.peek().map(|t| t.item)
+                                != Some(lexer::TokenKind::RBracket)
+                            {
                                 args.push(self.parse_expression(1)?);
-                                if self.tokens.peek() == Some(&lexer::Token::Comma) {
+                                if self.tokens.peek().map(|t| t.item) == Some(lexer::TokenKind::Comma)
+                                {
                                     self.tokens.next(); // consume ','
                                 } else {
                                     break;
                                 }
                             }
-                            self.expect(lexer::Token::RBracket)?;
+                            self.expect(lexer::TokenKind::RBracket)?;
 
                             expr = Expression::TupleConst { tag, values: args }
                         } else {
@@ -391,7 +416,7 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            let op_info = get_op_info(peek.unwrap());
+            let op_info = get_op_info(&peek.unwrap().item);
 
             if op_info.is_none() {
                 break;
@@ -443,14 +468,20 @@ impl<'a> Parser<'a> {
         let mut expressions: Vec<Expression> = Vec::new();
 
         loop {
-            if matches!(self.tokens.peek(), Some(lexer::Token::End)) {
+            if matches!(
+                self.tokens.peek().map(|t| t.item),
+                Some(lexer::TokenKind::End)
+            ) {
                 break;
             }
 
             let expr = self.parse_expression(1)?;
             expressions.push(expr);
 
-            if matches!(self.tokens.peek(), Some(lexer::Token::Semicolon)) {
+            if matches!(
+                self.tokens.peek().map(|t| t.item),
+                Some(lexer::TokenKind::Semicolon)
+            ) {
                 self.tokens.next();
                 continue;
             } else {
@@ -462,16 +493,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_filter(&mut self) -> Result<Filter, ParseError> {
-        self.expect(lexer::Token::Filter)?;
+        self.expect(lexer::TokenKind::Filter)?;
 
         let name = self.consume_ident()?;
 
-        self.expect(lexer::Token::LParen)?;
+        self.expect(lexer::TokenKind::LParen)?;
         // todo: parse arguments
-        self.expect(lexer::Token::RParen)?;
+        self.expect(lexer::TokenKind::RParen)?;
 
         let expressions = self.parse_expr_block()?;
-        self.expect(lexer::Token::End)?;
+        self.expect(lexer::TokenKind::End)?;
 
         Ok(Filter {
             name: name,
@@ -481,7 +512,6 @@ impl<'a> Parser<'a> {
 
     fn parse_module(&mut self) -> Result<Module, ParseError> {
         let mut filters: Vec<Filter> = Vec::new();
-
         while self.tokens.peek().is_some() {
             match self.parse_filter() {
                 Ok(filter) => filters.push(filter),
