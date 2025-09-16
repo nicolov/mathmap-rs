@@ -26,7 +26,7 @@
 			</div>
 			<textarea id="inputBox"></textarea>
 			<div class="mode-toggle">
-				<label><input type="checkbox" id="gpuToggle" checked>WebGPU</label>
+				<label><input type="checkbox" id="gpuToggle">WebGPU</label>
 			</div>
 			<button id="renderBtn">Render</button>
 		</div>
@@ -215,8 +215,14 @@ filter red ()
     rgbColor(0, 1, 0)
 end
 `;
+			const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 
-			document.getElementById("inputBox").value = filterRed;
+			document.getElementById("inputBox").value = isLocalhost ? filterRed : filterTarget;
+
+			const gpuToggle = document.getElementById("gpuToggle");
+
+			// Default to WebGPU for development.
+			gpuToggle.checked = isLocalhost;
 
 			// Render once on page load.
 			void render();
@@ -234,7 +240,7 @@ end
 				}
 			});
 
-			document.getElementById("gpuToggle").addEventListener("change", () => {
+			gpuToggle.addEventListener("change", () => {
 				void render();
 			});
 		}

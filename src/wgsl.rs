@@ -55,6 +55,11 @@ var<uniform> params: Params;
 "#;
 
 const FILTER_PREAMBLE: &str = r#"
+
+fn rgbColor(r: f32, g: f32, b: f32) -> vec4<f32> {
+    return vec4<f32>(r, g, b, 1.0);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     let idx = GlobalInvocationID.x;
@@ -64,15 +69,59 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     }
 "#;
 
+const LOCAL_VAR_PREFIX: &str = "local_";
+
 struct WgslCompiler {
     writer: LineWriter,
+    // TODO: Make a proper symbol table to keep track of variables.
+    local_var_idx: usize,
 }
 
 impl WgslCompiler {
     fn new() -> Self {
         Self {
             writer: LineWriter::new(),
+            local_var_idx: 0,
         }
+    }
+
+    fn compile_expr(&mut self, expr: &ast::Expression) -> usize {
+        let expr_idx = self.local_var_idx;
+
+        match expr {
+            ast::Expression::FunctionCall { name, args } => {
+                let mut s = format!(
+                    "var {}_{} : vec4<f32> = ",
+                    LOCAL_VAR_PREFIX, self.local_var_idx
+                );
+                self.local_var_idx += 1;
+
+                s.push_str(&format!("{}(", name));
+
+                let mut it = args.iter().peekable();
+                while let Some(arg) = it.next() {
+                    let arg_idx = self.compile_expr(arg);
+                    s.push_str(&format!("{}_{}", LOCAL_VAR_PREFIX, arg_idx));
+                    if it.peek().is_some() {
+                        s.push_str(", ");
+                    }
+                }
+                s.push_str(")");
+                s.push_str(";");
+                self.writer.line(&s);
+            }
+            ast::Expression::IntConst { value } => {
+                let mut s = format!("var {}_{} : f32 = ", LOCAL_VAR_PREFIX, self.local_var_idx);
+                self.local_var_idx += 1;
+
+                s.push_str(&format!("{}", value));
+                s.push_str(";");
+                self.writer.line(&s);
+            }
+            _ => {}
+        }
+
+        expr_idx
     }
 
     fn compile_filter(&mut self, filter: &ast::Filter) {
@@ -81,8 +130,17 @@ impl WgslCompiler {
 
         self.writer.indent();
 
-        self.writer
-            .line("output.pixels[idx] = vec4<f32>(0.0, 1.0, 0.0, 1.0);");
+        let mut last_expr_idx = 0;
+
+        for expr in &filter.exprs {
+            last_expr_idx = self.compile_expr(expr);
+        }
+
+        // Assign the last expression to the output buffer.
+        self.writer.line(&format!(
+            "output.pixels[idx] = {}_{};",
+            LOCAL_VAR_PREFIX, last_expr_idx,
+        ));
         self.writer.dedent();
         self.writer.line("}");
     }
@@ -106,7 +164,11 @@ mod tests {
         let ast = ast::parse_module(input)?;
         let filter = &ast.filters[0];
         let out = compile_filter(filter);
-        println!("{:?}", out);
+
+        if let Ok(out) = out {
+            println!("{}", out);
+        }
+
         Ok(())
     }
 }
