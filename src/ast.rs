@@ -433,18 +433,15 @@ impl<'a> Parser<'a> {
         let mut atom_lhs = self.parse_atom()?;
 
         loop {
-            let peek_kind = self.peek_token_kind()?;
-            if peek_kind.is_none() {
-                break;
-            }
+            let peek_kind = match self.peek_token_kind()? {
+                Some(kind) => kind,
+                None => break,
+            };
 
-            let op_info = get_op_info(&peek_kind.unwrap());
-
-            if op_info.is_none() {
-                break;
-            }
-
-            let op_info = op_info.unwrap();
+            let op_info = match get_op_info(&peek_kind) {
+                Some(info) => info,
+                None => break,
+            };
 
             if op_info.precedence < min_precedence {
                 break;
