@@ -67,7 +67,16 @@
 			async function renderWebGPU(script) {
 				const { device } = await ensureWebGPU();
 				const shaderCode = compile_to_wgsl(script);
+				console.log(shaderCode);
 				const shaderModule = device.createShaderModule({ code: shaderCode });
+				const compilation = await shaderModule.getCompilationInfo();
+				const errors = compilation.messages.filter((m) => m.type === "error");
+				if (errors.length) {
+					const formatted = errors
+						.map((m) => `Line ${m.lineNum ?? "?"}, col ${m.columnNum ?? "?"}: ${m.message}`)
+						.join("\n");
+					throw new Error(`WebGPU shader compilation failed:\n${formatted}`);
+				}
 				const bindGroupLayout = device.createBindGroupLayout({
 					entries: [
 						{
@@ -82,7 +91,7 @@
 						},
 					],
 				});
-				const pipeline = device.createComputePipeline({
+				const pipeline = await device.createComputePipelineAsync({
 					layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
 					compute: {
 						module: shaderModule,
