@@ -314,14 +314,15 @@ impl<'a> Iterator for Lexer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SyntaxError;
 
-    fn tokenize<'a>(input: &'a str) -> Vec<TokenKind<'a>> {
+    fn tokenize<'a>(input: &'a str) -> Result<Vec<TokenKind<'a>>, SyntaxError> {
         let x = Lexer::new(input);
-        x.map(|s| s.unwrap().item).collect()
+        x.map(|s| s.map(|t| t.item)).collect()
     }
 
     #[test]
-    fn peek() {
+    fn peek() -> Result<(), SyntaxError> {
         let s = "abc";
         let mut lexer = Lexer::new(s);
 
@@ -333,13 +334,14 @@ mod tests {
         lexer.advance();
         assert!(lexer.peek() == Some('c'));
         assert!(lexer.peek_next() == None);
+        Ok(())
     }
 
     #[test]
-    fn test_span() {
+    fn test_span() -> Result<(), SyntaxError> {
         let s = "a\nb\n c";
         let lexer = Lexer::new(s);
-        let tokens: Vec<_> = lexer.map(|r| r.unwrap()).collect();
+        let tokens: Vec<_> = lexer.collect::<Result<Vec<_>, _>>()?;
         assert_eq!(tokens.len(), 3);
         assert_eq!(tokens[0].line, 1);
         assert_eq!(tokens[0].column, 1);
@@ -347,24 +349,29 @@ mod tests {
         assert_eq!(tokens[1].column, 1);
         assert_eq!(tokens[2].line, 3);
         assert_eq!(tokens[2].column, 2);
+        Ok(())
     }
 
     macro_rules! check_lexer {
     ($input:expr, [ $($token:expr),* $(,)? ]) => {
-        assert_eq!(
-            tokenize($input),
-            vec![ $($token),* ]
-        )
+        {
+            let got = tokenize($input)?;
+            assert_eq!(
+                got,
+                vec![ $($token),* ]
+            );
+        }
         };
     }
 
     #[test]
-    fn simple() {
+    fn simple() -> Result<(), SyntaxError> {
         check_lexer!("  (  )  ", [TokenKind::LParen, TokenKind::RParen]);
+        Ok(())
     }
 
     #[test]
-    fn two_chars() {
+    fn two_chars() -> Result<(), SyntaxError> {
         check_lexer!(
             "= == < <= > >= ! !=",
             [
@@ -378,28 +385,32 @@ mod tests {
                 TokenKind::NotEqual,
             ]
         );
+        Ok(())
     }
 
     #[test]
-    fn integer_literal() {
+    fn integer_literal() -> Result<(), SyntaxError> {
         check_lexer!("1234", [TokenKind::NumberLit("1234")]);
+        Ok(())
     }
 
     #[test]
-    fn float_literal() {
+    fn float_literal() -> Result<(), SyntaxError> {
         check_lexer!("1234.5678", [TokenKind::NumberLit("1234.5678")]);
+        Ok(())
     }
 
     #[test]
-    fn identifier() {
+    fn identifier() -> Result<(), SyntaxError> {
         check_lexer!(
             "filter hello",
             [TokenKind::Filter, TokenKind::Ident("hello")]
         );
+        Ok(())
     }
 
     #[test]
-    fn filter() {
+    fn filter() -> Result<(), SyntaxError> {
         check_lexer!(
             "filter red ()
                 rgbColor(1, 0, 0)
@@ -420,10 +431,11 @@ mod tests {
                 TokenKind::End,
             ]
         );
+        Ok(())
     }
 
     #[test]
-    fn or() {
+    fn or() -> Result<(), SyntaxError> {
         check_lexer!(
             "(a + b) || c",
             [
@@ -436,10 +448,11 @@ mod tests {
                 TokenKind::Ident("c"),
             ]
         );
+        Ok(())
     }
 
     #[test]
-    fn comment_start_of_line() {
+    fn comment_start_of_line() -> Result<(), SyntaxError> {
         check_lexer!(
             "# a comment
             filter red ()",
@@ -449,11 +462,12 @@ mod tests {
                 TokenKind::LParen,
                 TokenKind::RParen
             ]
-        )
+        );
+        Ok(())
     }
 
     #[test]
-    fn comment_rest_of_line() {
+    fn comment_rest_of_line() -> Result<(), SyntaxError> {
         check_lexer!(
             "filter red () # comment",
             [
@@ -462,6 +476,21 @@ mod tests {
                 TokenKind::LParen,
                 TokenKind::RParen
             ]
-        )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn lex_error() -> Result<(), SyntaxError> {
+        let input = "\na | b";
+        if let Err(e) = tokenize(input) {
+            dbg!(&e);
+            assert!(e.message.contains("Unexpected '|' without '||'"));
+            assert_eq!(e.line, 2);
+            assert_eq!(e.column, 3);
+            Ok(())
+        } else {
+            panic!("expected the parser to fail");
+        }
     }
 }
