@@ -2,7 +2,7 @@
 
 #![allow(dead_code)]
 
-use crate::ast;
+use crate::{MathMapError, ast};
 
 struct LineWriter {
     buf: String,
@@ -82,16 +82,16 @@ impl WgslCompiler {
         self.writer.indent();
 
         self.writer
-            .line("output.pixels[idx] = vec4<f32>(1.0, 0.0, 0.0, 1.0);");
+            .line("output.pixels[idx] = vec4<f32>(0.0, 1.0, 0.0, 1.0);");
         self.writer.dedent();
         self.writer.line("}");
     }
 }
 
-pub fn compile_filter(filter: &ast::Filter) -> String {
+pub fn compile_filter(filter: &ast::Filter) -> Result<String, MathMapError> {
     let mut compiler = WgslCompiler::new();
     compiler.compile_filter(filter);
-    compiler.writer.finish()
+    Ok(compiler.writer.finish())
 }
 
 #[cfg(test)]
@@ -106,7 +106,7 @@ mod tests {
         let ast = ast::parse_module(input)?;
         let filter = &ast.filters[0];
         let out = compile_filter(filter);
-        println!("{}", out);
+        println!("{:?}", out);
         Ok(())
     }
 }

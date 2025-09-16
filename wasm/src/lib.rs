@@ -33,5 +33,5 @@ pub fn make_image(script: &str) -> Result<Vec<u8>, JsValue> {
 
 #[wasm_bindgen]
 pub fn compile_to_wgsl(script: &str) -> Result<String, JsValue> {
-    mathmap::compile_to_wgsl(script)?
+    mathmap::compile_script_to_wgsl(script).map_err(|e| JsValue::from(JsMathMapError(e)))
 }

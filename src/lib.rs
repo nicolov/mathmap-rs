@@ -7,8 +7,6 @@ mod wgsl;
 pub use err::MathMapError;
 pub use err::SyntaxError;
 
-pub use wgsl::compile_filter as compile_to_wgsl;
-
 pub fn exec_mathmap_file(
     srcpath: &str,
     im_w: u32,
@@ -81,4 +79,14 @@ pub fn exec_mathmap_script(
         let t = i as f32 / num_frames as f32;
         render_fn(t)
     }))
+}
+
+pub fn compile_script_to_wgsl(src: &str) -> Result<String, MathMapError> {
+    let module = ast::parse_module(src).map_err(MathMapError::Syntax)?;
+    println!("{:#?}", module);
+
+    let mut filters = module.filters;
+    let filter = filters.remove(0);
+
+    wgsl::compile_filter(&filter)
 }
