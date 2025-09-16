@@ -30,3 +30,34 @@ pub fn make_image(script: &str) -> Result<Vec<u8>, JsValue> {
 
     Ok(buffer)
 }
+
+#[wasm_bindgen]
+pub fn compile_to_wgsl(script: &str) -> Result<String, JsValue> {
+    let wgsl = r#"
+struct OutputBuffer {
+    pixels: array<vec4<f32>>,
+};
+
+struct Params {
+    size: vec2<u32>,
+};
+
+@group(0) @binding(0)
+var<storage, read_write> output: OutputBuffer;
+
+@group(0) @binding(1)
+var<uniform> params: Params;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
+    let idx = GlobalInvocationID.x;
+    let pixel_count = params.size.x * params.size.y;
+    if (idx >= pixel_count) {
+        return;
+    }
+    output.pixels[idx] = vec4<f32>(1.0, 0.0, 0.0, 1.0);
+}
+"#;
+
+    Ok(wgsl.to_string())
+}

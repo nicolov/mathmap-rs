@@ -17,11 +17,17 @@
 		<div class="half">
 			<div class="instructions">
 				<p>Enter a Mathmap script below and press <strong>Render</strong> or <strong>Cmd/Ctrl+Enter</strong> to
-					generate the image. The rendering code runs entirely in your browser and no data is sent anywhere.</p>
+					generate the image. The rendering code runs entirely in your browser and no data is sent anywhere.
+				</p>
 				<p>Hint: try playing with the example below.</p>
 			</div>
-			<div id="errorBox" style="display:none; width:90%; padding:0.8rem; border-radius:8px; background:#ffe6e6; color:#a40000; border:1px solid #ffb3b3;"></div>
+			<div id="errorBox"
+				style="display:none; width:90%; padding:0.8rem; border-radius:8px; background:#ffe6e6; color:#a40000; border:1px solid #ffb3b3;">
+			</div>
 			<textarea id="inputBox"></textarea>
+			<div class="mode-toggle">
+				<label><input type="checkbox" id="gpuToggle">WebGPU</label>
+			</div>
 			<button id="renderBtn">Render</button>
 		</div>
 
@@ -31,7 +37,7 @@
 	</main>
 
 	<script type="module">
-		import init, { make_image } from "./pkg/mathmap_wasm.js";
+		import init, { make_image, compile_to_wgsl } from "./pkg/mathmap_wasm.js";
 
 		async function run() {
 			await init();
@@ -40,6 +46,110 @@
 			const width = 256, height = 256;
 			canvas.width = width;
 			canvas.height = height;
+			let gpuState = null;
+
+			async function ensureWebGPU() {
+				if (gpuState) {
+					return gpuState;
+				}
+				if (!navigator.gpu) {
+					throw new Error("WebGPU is not supported in this browser");
+				}
+				const adapter = await navigator.gpu.requestAdapter();
+				if (!adapter) {
+					throw new Error("Failed to acquire WebGPU adapter");
+				}
+				const device = await adapter.requestDevice();
+				gpuState = { adapter, device };
+				return gpuState;
+			}
+
+			async function renderWebGPU(script) {
+				const { device } = await ensureWebGPU();
+				const shaderCode = compile_to_wgsl(script);
+				const shaderModule = device.createShaderModule({ code: shaderCode });
+				const bindGroupLayout = device.createBindGroupLayout({
+					entries: [
+						{
+							binding: 0,
+							visibility: GPUShaderStage.COMPUTE,
+							buffer: { type: "storage" },
+						},
+						{
+							binding: 1,
+							visibility: GPUShaderStage.COMPUTE,
+							buffer: { type: "uniform" },
+						},
+					],
+				});
+				const pipeline = device.createComputePipeline({
+					layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+					compute: {
+						module: shaderModule,
+						entryPoint: "main",
+					},
+				});
+				const pixelCount = width * height;
+				const workgroupSize = 64;
+				const bufferSize = pixelCount * 4 * Float32Array.BYTES_PER_ELEMENT;
+				const storageBuffer = device.createBuffer({
+					size: bufferSize,
+					usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+				});
+				const uniformBuffer = device.createBuffer({
+					size: 16,
+					usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+				});
+				const uniformData = new Uint32Array([width, height, 0, 0]);
+				device.queue.writeBuffer(uniformBuffer, 0, uniformData.buffer);
+				const stagingBuffer = device.createBuffer({
+					size: bufferSize,
+					usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+				});
+				const bindGroup = device.createBindGroup({
+					layout: bindGroupLayout,
+					entries: [
+						{
+							binding: 0,
+							resource: {
+								buffer: storageBuffer,
+							},
+						},
+						{
+							binding: 1,
+							resource: {
+								buffer: uniformBuffer,
+							},
+						},
+					],
+				});
+				const commandEncoder = device.createCommandEncoder();
+				const pass = commandEncoder.beginComputePass();
+				pass.setPipeline(pipeline);
+				pass.setBindGroup(0, bindGroup);
+				const workgroupCount = Math.ceil(pixelCount / workgroupSize);
+				pass.dispatchWorkgroups(workgroupCount);
+				pass.end();
+				commandEncoder.copyBufferToBuffer(storageBuffer, 0, stagingBuffer, 0, bufferSize);
+				device.queue.submit([commandEncoder.finish()]);
+				await stagingBuffer.mapAsync(GPUMapMode.READ);
+				const data = stagingBuffer.getMappedRange();
+				const floatPixels = new Float32Array(data);
+				const rgba = new Uint8ClampedArray(pixelCount * 4);
+				for (let i = 0; i < pixelCount; i++) {
+					const base = i * 4;
+					rgba[base + 0] = Math.min(255, Math.max(0, Math.round(floatPixels[base + 0] * 255)));
+					rgba[base + 1] = Math.min(255, Math.max(0, Math.round(floatPixels[base + 1] * 255)));
+					rgba[base + 2] = Math.min(255, Math.max(0, Math.round(floatPixels[base + 2] * 255)));
+					rgba[base + 3] = Math.min(255, Math.max(0, Math.round(floatPixels[base + 3] * 255)));
+				}
+				stagingBuffer.unmap();
+				storageBuffer.destroy();
+				stagingBuffer.destroy();
+				uniformBuffer.destroy();
+				const imgData = new ImageData(rgba, width, height);
+				ctx.putImageData(imgData, 0, 0);
+			}
 
 			function setError(message) {
 				const box = document.getElementById("errorBox");
@@ -64,16 +174,20 @@
 				}
 			}
 
-			function render() {
+			async function render() {
 				const text = document.getElementById("inputBox").value;
 				try {
-					const data = make_image(text);
-					const imgData = new ImageData(
-						new Uint8ClampedArray(data),
-						width,
-						height
-					);
-					ctx.putImageData(imgData, 0, 0);
+					if (document.getElementById("gpuToggle").checked) {
+						await renderWebGPU(text);
+					} else {
+						const data = make_image(text);
+						const imgData = new ImageData(
+							new Uint8ClampedArray(data),
+							width,
+							height
+						);
+						ctx.putImageData(imgData, 0, 0);
+					}
 					setError(null);
 				} catch (e) {
 					console.error(e);
@@ -97,17 +211,23 @@ end
 `;
 
 			// Render once on page load.
-			render();
+			void render();
 
 			// Render on button click.
-			document.getElementById("renderBtn").addEventListener("click", render);
+			document.getElementById("renderBtn").addEventListener("click", () => {
+				void render();
+			});
 
 			// Render on Cmd+Enter or Ctrl+Enter.
 			document.getElementById("inputBox").addEventListener("keydown", (e) => {
 				if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
 					e.preventDefault();
-					render();
+					void render();
 				}
+			});
+
+			document.getElementById("gpuToggle").addEventListener("change", () => {
+				void render();
 			});
 		}
 
