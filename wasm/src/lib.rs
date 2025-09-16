@@ -7,7 +7,7 @@ struct JsMathMapError(mathmap::MathMapError);
 impl From<JsMathMapError> for JsValue {
     fn from(e: JsMathMapError) -> JsValue {
         let msg = match e.0 {
-            mathmap::MathMapError::Parse(e) => format!("{}", e),
+            mathmap::MathMapError::Syntax(e) => format!("{}", e),
         };
         JsValue::from(JsError::new(&msg))
     }

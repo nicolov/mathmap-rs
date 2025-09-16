@@ -22,7 +22,7 @@ pub fn exec_mathmap_script(
     im_h: u32,
     num_frames: i64,
 ) -> Result<impl Iterator<Item = image::ImageBuffer<image::Rgba<u8>, Vec<u8>>>, MathMapError> {
-    let module = ast::parse_module(&src).map_err(MathMapError::Parse)?;
+    let module = ast::parse_module(&src).map_err(MathMapError::Syntax)?;
     println!("{:#?}", module);
 
     let mut filters = module.filters;
