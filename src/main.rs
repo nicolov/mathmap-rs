@@ -41,7 +41,10 @@ fn main() -> anyhow::Result<()> {
     let mut buffers = mathmap::exec_mathmap_file(&args.srcpath, im_w, im_h, args.num_frames)?;
 
     if args.num_frames == 1 {
-        buffers.next().unwrap().save("out/out.png").unwrap();
+        let im = buffers
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("no buffers returned"))??;
+        im.save("out/out.png")?;
     } else {
         let gif_file = std::fs::File::create("out/out.gif").unwrap();
         let mut gif_encoder = image::codecs::gif::GifEncoder::new(gif_file);
@@ -50,6 +53,7 @@ fn main() -> anyhow::Result<()> {
             .unwrap();
 
         for im in buffers {
+            let im = im?;
             let frame =
                 image::Frame::from_parts(im, 0, 0, image::Delay::from_numer_denom_ms(50, 1));
             gif_encoder.encode_frame(frame).unwrap();

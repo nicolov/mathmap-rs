@@ -2,8 +2,8 @@
 
 use crate::ast;
 use crate::ast::TupleTag;
+use crate::err::RuntimeError;
 
-use core::panic;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -34,13 +34,20 @@ impl Environment {
     }
 }
 
-fn promote_scalar_to_float(value: Value) -> f32 {
+fn promote_scalar_to_float(value: &Value) -> Result<f32, RuntimeError> {
     match value {
         Value::Tuple(_, data) => {
-            assert!(data.len() == 1);
-            data[0]
+            if data.len() == 1 {
+                Ok(data[0])
+            } else {
+                Err(RuntimeError::with_pos(
+                    format!("expected scalar tuple len 1, got {}", data.len()),
+                    0,
+                    0,
+                ))
+            }
         }
-        Value::Int(x) => x as f32,
+        Value::Int(x) => Ok(*x as f32),
     }
 }
 
@@ -57,7 +64,7 @@ fn eval_binary_op<FloatOp, IntOp>(
     float_op: FloatOp,
     int_op: IntOp,
     always_as_float: bool,
-) -> Value
+) -> Result<Value, RuntimeError>
 where
     FloatOp: Fn(f32, f32) -> f32,
     IntOp: Fn(i64, i64) -> i64,
@@ -67,61 +74,95 @@ where
     match (lhs.len(), rhs.len()) {
         (1, 1) => {
             if always_as_float || needs_float(lhs, rhs) {
-                let a = promote_scalar_to_float(lhs.clone());
-                let b = promote_scalar_to_float(rhs.clone());
-                Value::Tuple(TupleTag::Nil, vec![float_op(a, b)])
+                let a = promote_scalar_to_float(lhs)?;
+                let b = promote_scalar_to_float(rhs)?;
+                Ok(Value::Tuple(TupleTag::Nil, vec![float_op(a, b)]))
             } else {
                 if let (Value::Int(x), Value::Int(y)) = (lhs, rhs) {
-                    Value::Int(int_op(*x, *y))
+                    Ok(Value::Int(int_op(*x, *y)))
                 } else {
-                    panic!();
+                    Err(RuntimeError::with_pos(
+                        "internal type mismatch in integer op",
+                        0,
+                        0,
+                    ))
                 }
             }
         }
         (1, _) => {
             if needs_float(lhs, rhs) {
-                let a = promote_scalar_to_float(lhs.clone());
+                let a = promote_scalar_to_float(lhs)?;
                 if let Value::Tuple(tag, data) = rhs.clone() {
-                    Value::Tuple(tag, data.iter().map(|x| float_op(a, *x)).collect())
+                    Ok(Value::Tuple(
+                        tag,
+                        data.iter().map(|x| float_op(a, *x)).collect(),
+                    ))
                 } else {
-                    panic!();
+                    Err(RuntimeError::with_pos(
+                        "unexpected non-tuple RHS in broadcasting",
+                        0,
+                        0,
+                    ))
                 }
             } else {
-                todo!("broadcasting not implemented for int arguments.")
+                Err(RuntimeError::with_pos(
+                    "broadcasting not implemented for int arguments",
+                    0,
+                    0,
+                ))
             }
         }
         (_, 1) => {
             if needs_float(lhs, rhs) {
-                let b = promote_scalar_to_float(rhs.clone());
+                let b = promote_scalar_to_float(rhs)?;
                 if let Value::Tuple(tag, data) = lhs.clone() {
-                    Value::Tuple(tag, data.iter().map(|x| float_op(*x, b)).collect())
+                    Ok(Value::Tuple(
+                        tag,
+                        data.iter().map(|x| float_op(*x, b)).collect(),
+                    ))
                 } else {
-                    panic!();
+                    Err(RuntimeError::with_pos(
+                        "unexpected non-tuple LHS in broadcasting",
+                        0,
+                        0,
+                    ))
                 }
             } else {
-                todo!("broadcasting not implemented for int arguments.");
+                Err(RuntimeError::with_pos(
+                    "broadcasting not implemented for int arguments",
+                    0,
+                    0,
+                ))
             }
         }
         (lhslen, rhslen) => {
             if lhslen != rhslen {
-                panic!("mismatched vector lengths");
+                return Err(RuntimeError::with_pos(
+                    format!("mismatched vector lengths: {} vs {}", lhslen, rhslen),
+                    0,
+                    0,
+                ));
             }
 
             if let (Value::Tuple(lhs_tag, lhs_data), Value::Tuple(rhs_tag, rhs_data)) = (lhs, rhs) {
                 if lhs_tag != rhs_tag {
-                    panic!("mismatched tuple tags");
+                    return Err(RuntimeError::with_pos("mismatched tuple tags", 0, 0));
                 }
 
-                Value::Tuple(
+                Ok(Value::Tuple(
                     *lhs_tag,
                     lhs_data
                         .iter()
                         .zip(rhs_data)
                         .map(|(x, y)| float_op(*x, *y))
                         .collect(),
-                )
+                ))
             } else {
-                panic!("unexpected")
+                Err(RuntimeError::with_pos(
+                    "unexpected non-tuple operands in vector op",
+                    0,
+                    0,
+                ))
             }
         }
     }
@@ -135,61 +176,73 @@ fn quat_mul(a: &Vec<f32>, b: &Vec<f32>) -> Vec<f32> {
     vec![w, x, y, z]
 }
 
-fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environment) -> Value {
+fn eval_function_call(
+    name: &str,
+    args: &Vec<ast::Expression>,
+    env: &mut Environment,
+) -> Result<Value, RuntimeError> {
     // Logical and needs special logic for short-circuiting.
     if name == "__and" {
         assert!(args.len() == 2);
 
-        if let Value::Int(x) = eval_expression(&args[0], env) {
+        if let Value::Int(x) = eval_expression(&args[0], env)? {
             if x != 0 {
-                if let Value::Int(y) = eval_expression(&args[1], env) {
+                if let Value::Int(y) = eval_expression(&args[1], env)? {
                     if y != 0 {
-                        return Value::Int(1);
+                        return Ok(Value::Int(1));
                     } else {
-                        return Value::Int(0);
+                        return Ok(Value::Int(0));
                     }
                 } else {
-                    panic!("and operator expects int arguments, found {:?}", args[1]);
+                    return Err(RuntimeError::with_pos(
+                        format!("and operator expects int arguments, found {:?}", args[1]),
+                        0,
+                        0,
+                    ));
                 }
             } else {
-                return Value::Int(0);
+                return Ok(Value::Int(0));
             }
         } else {
-            panic!("and operator expects int arguments, found {:?}", args[0]);
+            return Err(RuntimeError::with_pos(
+                format!("and operator expects int arguments, found {:?}", args[0]),
+                0,
+                0,
+            ));
         }
     }
 
     let args = args
         .iter()
         .map(|arg| eval_expression(arg, env))
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
 
     match name {
         "rgbColor" => {
             assert!(args.len() == 3);
 
-            let r = promote_scalar_to_float(args[0].clone());
-            let g = promote_scalar_to_float(args[1].clone());
-            let b = promote_scalar_to_float(args[2].clone());
+            let r = promote_scalar_to_float(&args[0])?;
+            let g = promote_scalar_to_float(&args[1])?;
+            let b = promote_scalar_to_float(&args[2])?;
 
-            Value::Tuple(TupleTag::Rgba, vec![r, g, b, 1.0])
+            Ok(Value::Tuple(TupleTag::Rgba, vec![r, g, b, 1.0]))
         }
         "rgbaColor" => {
             assert!(args.len() == 4);
 
-            let r = promote_scalar_to_float(args[0].clone());
-            let g = promote_scalar_to_float(args[1].clone());
-            let b = promote_scalar_to_float(args[2].clone());
-            let a = promote_scalar_to_float(args[3].clone());
+            let r = promote_scalar_to_float(&args[0])?;
+            let g = promote_scalar_to_float(&args[1])?;
+            let b = promote_scalar_to_float(&args[2])?;
+            let a = promote_scalar_to_float(&args[3])?;
 
-            Value::Tuple(TupleTag::Rgba, vec![r, g, b, a])
+            Ok(Value::Tuple(TupleTag::Rgba, vec![r, g, b, a]))
         }
         "grayColor" => {
             assert!(args.len() == 1);
 
-            let x = promote_scalar_to_float(args[0].clone());
+            let x = promote_scalar_to_float(&args[0])?;
 
-            Value::Tuple(TupleTag::Rgba, vec![x, x, x, 1.0])
+            Ok(Value::Tuple(TupleTag::Rgba, vec![x, x, x, 1.0]))
         }
         "__add" => {
             assert!(args.len() == 2);
@@ -216,7 +269,7 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
 
             match (&args[0], &args[1]) {
                 (Value::Tuple(TupleTag::Quat, q1), Value::Tuple(TupleTag::Quat, q2)) => {
-                    Value::Tuple(TupleTag::Quat, quat_mul(q1, q2))
+                    Ok(Value::Tuple(TupleTag::Quat, quat_mul(q1, q2)))
                 }
                 _ => eval_binary_op(
                     &args[0],
@@ -252,24 +305,28 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
             // Only supports scalar ints for now, should we promote floats?
             match (&args[0], &args[1]) {
                 (Value::Int(x), Value::Int(y)) => {
-                    Value::Int(if *x != 0 || *y != 0 { 1 } else { 0 })
+                    Ok(Value::Int(if *x != 0 || *y != 0 { 1 } else { 0 }))
                 }
-                _ => panic!(
-                    "__or only supports int inputs, found {:?} and {:?}",
-                    args[0], args[1]
-                ),
+                _ => Err(RuntimeError::with_pos(
+                    format!(
+                        "__or only supports int inputs, found {:?} and {:?}",
+                        args[0], args[1]
+                    ),
+                    0,
+                    0,
+                )),
             }
         }
         "__less" => {
             assert!(args.len() == 2);
 
             match (&args[0], &args[1]) {
-                (Value::Int(x), Value::Int(y)) => Value::Int(if x < y { 1 } else { 0 }),
+                (Value::Int(x), Value::Int(y)) => Ok(Value::Int(if x < y { 1 } else { 0 })),
                 _ => {
-                    let a = promote_scalar_to_float(args[0].clone());
-                    let b = promote_scalar_to_float(args[1].clone());
+                    let a = promote_scalar_to_float(&args[0])?;
+                    let b = promote_scalar_to_float(&args[1])?;
                     let res = a < b;
-                    Value::Int(if res { 1 } else { 0 })
+                    Ok(Value::Int(if res { 1 } else { 0 }))
                 }
             }
         }
@@ -277,12 +334,12 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
             assert!(args.len() == 2);
 
             match (&args[0], &args[1]) {
-                (Value::Int(x), Value::Int(y)) => Value::Int(if x <= y { 1 } else { 0 }),
+                (Value::Int(x), Value::Int(y)) => Ok(Value::Int(if x <= y { 1 } else { 0 })),
                 _ => {
-                    let a = promote_scalar_to_float(args[0].clone());
-                    let b = promote_scalar_to_float(args[1].clone());
+                    let a = promote_scalar_to_float(&args[0])?;
+                    let b = promote_scalar_to_float(&args[1])?;
                     let res = a <= b;
-                    Value::Int(if res { 1 } else { 0 })
+                    Ok(Value::Int(if res { 1 } else { 0 }))
                 }
             }
         }
@@ -292,8 +349,8 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
             let a = args[0].clone();
 
             match a {
-                Value::Tuple(tag, data) => Value::Tuple(tag, data.iter().map(|x| -x).collect()),
-                Value::Int(x) => Value::Int(-x),
+                Value::Tuple(tag, data) => Ok(Value::Tuple(tag, data.iter().map(|x| -x).collect())),
+                Value::Int(x) => Ok(Value::Int(-x)),
             }
         }
         "abs" => {
@@ -304,12 +361,12 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
             match a {
                 Value::Tuple(TupleTag::Quat, data) => {
                     let mag = data.iter().map(|x| x * x).sum::<f32>().sqrt();
-                    Value::Tuple(TupleTag::Nil, vec![mag])
+                    Ok(Value::Tuple(TupleTag::Nil, vec![mag]))
                 }
                 Value::Tuple(tag, data) => {
-                    Value::Tuple(tag, data.iter().map(|x| x.abs()).collect())
+                    Ok(Value::Tuple(tag, data.iter().map(|x| x.abs()).collect()))
                 }
-                Value::Int(x) => Value::Int(x.abs()),
+                Value::Int(x) => Ok(Value::Int(x.abs())),
             }
         }
         "sin" => {
@@ -319,9 +376,9 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
 
             match a {
                 Value::Tuple(tag, data) => {
-                    Value::Tuple(tag, data.iter().map(|x| x.sin()).collect())
+                    Ok(Value::Tuple(tag, data.iter().map(|x| x.sin()).collect()))
                 }
-                Value::Int(x) => Value::Tuple(TupleTag::Nil, vec![f32::from(x as f32).sin()]),
+                Value::Int(x) => Ok(Value::Tuple(TupleTag::Nil, vec![f32::from(x as f32).sin()])),
             }
         }
         "log" => {
@@ -330,66 +387,69 @@ fn eval_function_call(name: &str, args: &Vec<ast::Expression>, env: &mut Environ
             let a = args[0].clone();
 
             match a {
-                Value::Tuple(tag, data) => Value::Tuple(tag, data.iter().map(|x| x.ln()).collect()),
-                Value::Int(x) => Value::Tuple(TupleTag::Nil, vec![f32::from(x as f32).ln()]),
+                Value::Tuple(tag, data) => {
+                    Ok(Value::Tuple(tag, data.iter().map(|x| x.ln()).collect()))
+                }
+                Value::Int(x) => Ok(Value::Tuple(TupleTag::Nil, vec![f32::from(x as f32).ln()])),
             }
         }
         "min" => {
             assert!(args.len() == 2);
-            eval_binary_op(
-                &args[0],
-                &args[1],
-                |x, y| x.min(y),
-                |x, y| x.min(y),
-                false,
-            )
+            eval_binary_op(&args[0], &args[1], |x, y| x.min(y), |x, y| x.min(y), false)
         }
         "max" => {
             assert!(args.len() == 2);
-            eval_binary_op(
-                &args[0],
-                &args[1],
-                |x, y| x.max(y),
-                |x, y| x.max(y),
-                false,
-            )
+            eval_binary_op(&args[0], &args[1], |x, y| x.max(y), |x, y| x.max(y), false)
         }
-        _ => panic!("unimplemented function {}", name),
+        _ => Err(RuntimeError::with_pos(
+            format!("unimplemented function {}", name),
+            0,
+            0,
+        )),
     }
 }
 
-fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Value {
+fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Result<Value, RuntimeError> {
     match expr {
-        ast::Expression::IntConst { value } => Value::Int(*value),
-        ast::Expression::FloatConst { value } => Value::Tuple(TupleTag::Nil, vec![*value as f32]),
+        ast::Expression::IntConst { value } => Ok(Value::Int(*value)),
+        ast::Expression::FloatConst { value } => {
+            Ok(Value::Tuple(TupleTag::Nil, vec![*value as f32]))
+        }
         ast::Expression::TupleConst { tag, values } => {
             // Here we assume that all expressions inside a tuple literal evaluate to a scalar
             // (that we promote to float to store in the tuple).
-            Value::Tuple(
-                *tag,
-                values
-                    .iter()
-                    .map(|x| promote_scalar_to_float(eval_expression(x, env)))
-                    .collect(),
-            )
+            let mut out: Vec<f32> = Vec::with_capacity(values.len());
+            for x in values {
+                let v = eval_expression(x, env)?;
+                out.push(promote_scalar_to_float(&v)?);
+            }
+            Ok(Value::Tuple(*tag, out))
         }
         ast::Expression::Cast { tag, expr } => {
-            let expr_val = eval_expression(&expr, env);
+            let expr_val = eval_expression(&expr, env)?;
             if let Value::Tuple(_, data) = expr_val {
-                Value::Tuple(*tag, data)
+                Ok(Value::Tuple(*tag, data))
             } else {
-                panic!(
-                    "cast expression must evaluate to a tuple, got {:?}",
-                    expr_val
-                );
+                Err(RuntimeError::with_pos(
+                    format!(
+                        "cast expression must evaluate to a tuple, got {:?}",
+                        expr_val
+                    ),
+                    0,
+                    0,
+                ))
             }
         }
         ast::Expression::FunctionCall { name, args } => eval_function_call(&name, &args, env),
         ast::Expression::Variable { name } => {
             if let Some(val) = env.values.get(name) {
-                return val.clone();
+                Ok(val.clone())
             } else {
-                panic!("variable {} not found", name);
+                Err(RuntimeError::with_pos(
+                    format!("variable {} not found", name),
+                    0,
+                    0,
+                ))
             }
         }
         ast::Expression::If {
@@ -397,7 +457,7 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Value {
             then,
             else_,
         } => {
-            let cond_result = eval_expression(condition, env);
+            let cond_result = eval_expression(condition, env)?;
 
             if let Value::Int(x) = cond_result {
                 if x != 0 {
@@ -405,72 +465,84 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Value {
                 } else if !else_.is_empty() {
                     eval_expr_block(else_, env)
                 } else {
-                    todo!();
+                    Err(RuntimeError::with_pos("empty else branch", 0, 0))
                 }
             } else {
-                panic!("condition is not an int");
+                Err(RuntimeError::with_pos("condition is not an int", 0, 0))
             }
         }
         ast::Expression::While { condition, body } => {
             loop {
-                let cond_result = eval_expression(condition, env);
+                let cond_result = eval_expression(condition, env)?;
 
                 if let Value::Int(x) = cond_result {
                     if x != 0 {
-                        eval_expr_block(body, env);
+                        let _ = eval_expr_block(body, env)?;
                     } else {
                         break;
                     }
                 } else {
-                    panic!("condition is not an int");
+                    return Err(RuntimeError::with_pos("condition is not an int", 0, 0));
                 }
             }
 
             // A while loop always evaluates to 0 according to the docs.
-            Value::Int(0)
+            Ok(Value::Int(0))
         }
         ast::Expression::Assignment { name, value } => {
-            let value = eval_expression(value, env);
+            let value = eval_expression(value, env)?;
             env.values.insert(name.clone(), value.clone());
-            value
+            Ok(value)
         }
         ast::Expression::Index { expr, index } => {
-            let expr = eval_expression(expr, env);
-            let index = eval_expression(index, env);
+            let expr = eval_expression(expr, env)?;
+            let index = eval_expression(index, env)?;
             if let Value::Tuple(_, data) = expr {
                 if let Value::Int(idx) = index {
                     if idx < 0 || idx >= data.len() as i64 {
-                        panic!(
-                            "index out of bounds, got {} but tuple has {} elements",
-                            idx,
-                            data.len()
-                        );
+                        return Err(RuntimeError::with_pos(
+                            format!(
+                                "index out of bounds, got {} but tuple has {} elements",
+                                idx,
+                                data.len()
+                            ),
+                            0,
+                            0,
+                        ));
                     }
-                    Value::Tuple(TupleTag::Nil, vec![data[idx as usize].clone()])
+                    Ok(Value::Tuple(
+                        TupleTag::Nil,
+                        vec![data[idx as usize].clone()],
+                    ))
                 } else {
-                    panic!("index must be int, got {:?}", index);
+                    Err(RuntimeError::with_pos("index must be int", 0, 0))
                 }
             } else {
-                panic!("only tuples can be indexed, got {:?}", expr);
+                Err(RuntimeError::with_pos("only tuples can be indexed", 0, 0))
             }
         }
     }
 }
 
-fn eval_expr_block(exprs: &Vec<ast::Expression>, env: &mut Environment) -> Value {
-    assert!(!exprs.is_empty());
+fn eval_expr_block(
+    exprs: &Vec<ast::Expression>,
+    env: &mut Environment,
+) -> Result<Value, RuntimeError> {
+    if exprs.is_empty() {
+        return Err(RuntimeError::with_pos("empty block", 0, 0));
+    }
 
     let mut result: Option<Value> = None;
 
     for expr in exprs {
-        result = Some(eval_expression(expr, env));
+        result = Some(eval_expression(expr, env)?);
     }
 
-    result.unwrap()
+    result.ok_or_else(|| RuntimeError::with_pos("empty block", 0, 0))
 }
 
-fn eval_filter_impl(filter: &ast::Filter, env: &mut Environment) -> Value {
-    return eval_expr_block(&filter.exprs, env);
+fn eval_filter_impl(filter: &ast::Filter, env: &mut Environment) -> Result<Value, RuntimeError> {
+    eval_expr_block(&filter.exprs, env)
 }
 
 fn to_ra(x: f32, y: f32) -> (f32, f32) {
@@ -483,7 +555,7 @@ fn to_ra(x: f32, y: f32) -> (f32, f32) {
     (r, a)
 }
 
-pub fn eval_filter(filter: &ast::Filter, x: f32, y: f32, t: f32) -> Value {
+pub fn eval_filter(filter: &ast::Filter, x: f32, y: f32, t: f32) -> Result<Value, RuntimeError> {
     let mut env = Environment::new();
 
     let mut bind_float_scalar = |name: &str, value: f32| {
@@ -512,161 +584,190 @@ mod tests {
     use crate::ast::Parser;
 
     #[test]
-    fn test_float_promotion() {
+    fn test_float_promotion() -> Result<(), Box<dyn std::error::Error>> {
         let input = "1 + 2.0";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
 
         let val_expected = Value::Tuple(TupleTag::Nil, vec![3.0]);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_int_op() {
+    fn test_int_op() -> Result<(), Box<dyn std::error::Error>> {
         let input = "1 + 2";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Int(3);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_broadcast() {
+    fn test_broadcast() -> Result<(), Box<dyn std::error::Error>> {
         let input = "1 + rgba:[2, 3, 4, 1]";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Tuple(TupleTag::Rgba, vec![3.0, 4.0, 5.0, 2.0]);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_broadcast_2() {
+    fn test_broadcast_2() -> Result<(), Box<dyn std::error::Error>> {
         let input = "rgba:[2, 3, 4, 0.5] * 0.5";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Tuple(TupleTag::Rgba, vec![1.0, 1.5, 2.0, 0.25]);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_elementwise() {
+    fn test_elementwise() -> Result<(), Box<dyn std::error::Error>> {
         let input = "rgba:[1, 2, 3, 4] + rgba:[5, 6, 7, 8]";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Tuple(TupleTag::Rgba, vec![6.0, 8.0, 10.0, 12.0]);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_index() {
+    fn test_index() -> Result<(), Box<dyn std::error::Error>> {
         let input = "(rgba:[1, 2, 3, 4])[1]";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Tuple(TupleTag::Nil, vec![2.0]);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_less() {
+    fn test_less() -> Result<(), Box<dyn std::error::Error>> {
         let input = "1 < 1";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Int(0);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_lessequal() {
+    fn test_lessequal() -> Result<(), Box<dyn std::error::Error>> {
         let input = "1 <= 1";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Int(1);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_or() {
+    fn test_or() -> Result<(), Box<dyn std::error::Error>> {
         let input = "0 || 1";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Int(1);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_and() {
+    fn test_and() -> Result<(), Box<dyn std::error::Error>> {
         let input = "1 && 2";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Int(1);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_tuple_build() {
+    fn test_tuple_build() -> Result<(), Box<dyn std::error::Error>> {
         let input = "rgba:[1, 2, 3, 4]";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Tuple(TupleTag::Rgba, vec![1.0, 2.0, 3.0, 4.0]);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_if() {
+    fn test_if() -> Result<(), Box<dyn std::error::Error>> {
         let input = "if x < 100 then y = 10; y else 200 end";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
         env.values.insert("x".to_string(), Value::Int(1));
-        let val = eval_expression(&ast, &mut env);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Int(10);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_while() {
+    fn test_while() -> Result<(), Box<dyn std::error::Error>> {
         let input = "i = 0; while i < 10 do i = i + 1; end; i";
         let mut parser = Parser::new(input);
-        let exprs = parser.parse_expr_block().unwrap();
+        let exprs = parser.parse_expr_block()?;
         let mut env = Environment::new();
-        let val = eval_expr_block(&exprs, &mut env);
+        let val = eval_expr_block(&exprs, &mut env)?;
         let val_expected = Value::Int(10);
         assert_eq!(val, val_expected);
+        Ok(())
     }
 
     #[test]
-    fn test_cast() {
+    fn test_cast() -> Result<(), Box<dyn std::error::Error>> {
         let input = "ri:xy";
         let mut parser = Parser::new(input);
-        let ast = parser.parse_expression(1).unwrap();
+        let ast = parser.parse_expression(1)?;
         let mut env = Environment::new();
         env.values
             .insert("xy".to_string(), Value::Tuple(TupleTag::Xy, vec![1.0, 2.0]));
-        let val = eval_expression(&ast, &mut env);
-        dbg!(&val);
+        let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Tuple(TupleTag::Ri, vec![1.0, 2.0]);
         assert_eq!(val, val_expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_runtime_error() -> Result<(), Box<dyn std::error::Error>> {
+        let input = "randomfn(1)";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1)?;
+        let mut env = Environment::new();
+        if let Err(RuntimeError(e)) = eval_expression(&ast, &mut env) {
+            assert!(e.message.contains("unimplemented function randomfn"));
+            assert_eq!(e.line, 0);
+            assert_eq!(e.column, 0);
+            Ok(())
+        } else {
+            panic!("expected the parser to fail with RuntimeError");
+        }
     }
 }

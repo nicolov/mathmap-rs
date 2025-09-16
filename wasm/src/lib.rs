@@ -8,6 +8,7 @@ impl From<JsMathMapError> for JsValue {
     fn from(e: JsMathMapError) -> JsValue {
         let msg = match e.0 {
             mathmap::MathMapError::Syntax(e) => format!("{}", e),
+            mathmap::MathMapError::Runtime(e) => format!("{}", e),
         };
         JsValue::from(JsError::new(&msg))
     }
@@ -24,6 +25,7 @@ pub fn make_image(script: &str) -> Result<Vec<u8>, JsValue> {
     let buffer = buffers
         .next()
         .ok_or_else(|| JsValue::from(js_sys::Error::new("no buffers returned")))?
+        .map_err(|e| JsValue::from(JsMathMapError(e)))?
         .into_raw();
 
     Ok(buffer)
