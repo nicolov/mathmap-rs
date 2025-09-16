@@ -75,12 +75,12 @@ end
 
 ## Goals for the bright future
 
-- Missing datatypes (complex numbers, matrices, etc..) and language constructs
+[x] Missing datatypes (complex numbers, matrices, etc..) and language constructs
   (`while`, etc..)
-- A semantic analysis pass to resolve fully-qualified types at compile time (for
+[ ] A semantic analysis pass to resolve fully-qualified types at compile time (for
   type promotion and broadcasting).
-- A bytecode compiler + bytecode VM running on the CPU.
-- Some kind of GPU compilation target (maybe generating WebGL code, or CUDA PTX,
+[ ] A bytecode compiler + bytecode VM running on the CPU.
+[ ] Some kind of GPU compilation target (maybe generating WebGL code, or CUDA PTX,
   or porting the bytecode VM to the GPU?).
 
 ## References

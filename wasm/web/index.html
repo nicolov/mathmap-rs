@@ -26,7 +26,7 @@
 			</div>
 			<textarea id="inputBox"></textarea>
 			<div class="mode-toggle">
-				<label><input type="checkbox" id="gpuToggle">WebGPU</label>
+				<label><input type="checkbox" id="gpuToggle" checked>WebGPU</label>
 			</div>
 			<button id="renderBtn">Render</button>
 		</div>
@@ -195,7 +195,7 @@
 				}
 			}
 
-			document.getElementById("inputBox").value = `\
+			const filterTarget = `\
 # This is an example Mathmap script.
 # Try changing some of the numbers below
 # and press "Render" to see what happens
@@ -209,6 +209,14 @@ filter target ()
     end
 end
 `;
+
+			const filterRed = `\
+filter red ()
+    rgbColor(0, 1, 0)
+end
+`;
+
+			document.getElementById("inputBox").value = filterRed;
 
 			// Render once on page load.
 			void render();

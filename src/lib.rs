@@ -2,9 +2,12 @@ mod ast;
 mod err;
 mod interpreter;
 mod lexer;
+mod wgsl;
 
 pub use err::MathMapError;
 pub use err::SyntaxError;
+
+pub use wgsl::compile_filter as compile_to_wgsl;
 
 pub fn exec_mathmap_file(
     srcpath: &str,
