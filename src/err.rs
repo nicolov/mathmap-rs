@@ -24,6 +24,9 @@ pub struct SyntaxError(pub ErrorWithPos);
 #[derive(Debug, Clone)]
 pub struct RuntimeError(pub ErrorWithPos);
 
+#[derive(Debug, Clone)]
+pub struct TypeError(pub ErrorWithPos);
+
 impl Deref for SyntaxError {
     type Target = ErrorWithPos;
 
@@ -33,6 +36,14 @@ impl Deref for SyntaxError {
 }
 
 impl Deref for RuntimeError {
+    type Target = ErrorWithPos;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for TypeError {
     type Target = ErrorWithPos;
 
     fn deref(&self) -> &Self::Target {
@@ -60,9 +71,21 @@ impl fmt::Display for RuntimeError {
     }
 }
 
+impl fmt::Display for TypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "SyntaxError: {} on line {}, col {}",
+            self.message, self.line, self.column
+        )
+    }
+}
+
 impl std::error::Error for SyntaxError {}
 
 impl std::error::Error for RuntimeError {}
+
+impl std::error::Error for TypeError {}
 
 impl SyntaxError {
     pub fn with_pos(msg: impl Into<String>, line: usize, column: usize) -> Self {
@@ -76,10 +99,17 @@ impl RuntimeError {
     }
 }
 
+impl TypeError {
+    pub fn with_pos(msg: impl Into<String>, line: usize, column: usize) -> Self {
+        Self(ErrorWithPos::with_pos(msg, line, column))
+    }
+}
+
 #[derive(Debug)]
 pub enum MathMapError {
     Syntax(SyntaxError),
     Runtime(RuntimeError),
+    Type(TypeError),
 }
 
 impl std::fmt::Display for MathMapError {
@@ -87,6 +117,7 @@ impl std::fmt::Display for MathMapError {
         match self {
             MathMapError::Syntax(e) => write!(f, "{}", e),
             MathMapError::Runtime(e) => write!(f, "{}", e),
+            MathMapError::Type(e) => write!(f, "{}", e),
         }
     }
 }
@@ -102,5 +133,11 @@ impl From<SyntaxError> for MathMapError {
 impl From<RuntimeError> for MathMapError {
     fn from(value: RuntimeError) -> Self {
         MathMapError::Runtime(value)
+    }
+}
+
+impl From<TypeError> for MathMapError {
+    fn from(value: TypeError) -> Self {
+        MathMapError::Type(value)
     }
 }

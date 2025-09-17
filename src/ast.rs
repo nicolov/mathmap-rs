@@ -2,6 +2,7 @@
 
 use crate::SyntaxError;
 use crate::lexer::{self, Spanned, TokenKind};
+use crate::sema::Type;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TupleTag {
@@ -89,7 +90,7 @@ fn get_op_info(op: &lexer::TokenKind) -> Option<OpInfo> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     // From exprtree.h
     IntConst {
@@ -130,6 +131,12 @@ pub enum Expression {
         tag: TupleTag,
         expr: Box<Expression>,
     },
+}
+
+impl Expression {
+    pub fn int_() -> Self {
+        Self::IntConst { value: 0 }
+    }
 }
 
 #[derive(Debug, PartialEq)]

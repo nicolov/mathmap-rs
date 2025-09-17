@@ -2,6 +2,7 @@ mod ast;
 mod err;
 mod interpreter;
 mod lexer;
+mod sema;
 mod wgsl;
 
 pub use err::MathMapError;

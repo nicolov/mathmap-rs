@@ -9,6 +9,7 @@ impl From<JsMathMapError> for JsValue {
         let msg = match e.0 {
             mathmap::MathMapError::Syntax(e) => format!("{}", e),
             mathmap::MathMapError::Runtime(e) => format!("{}", e),
+            mathmap::MathMapError::Type(e) => format!("{}", e),
         };
         JsValue::from(JsError::new(&msg))
     }
