@@ -134,8 +134,63 @@ pub enum Expression {
 }
 
 impl Expression {
-    pub fn int_() -> Self {
-        Self::IntConst { value: 0 }
+    pub fn int_(value: i64) -> Self {
+        Self::IntConst { value }
+    }
+
+    pub fn float_(value: f32) -> Self {
+        Self::FloatConst { value }
+    }
+
+    pub fn tuple_(tag: TupleTag, values: Vec<Self>) -> Self {
+        Self::TupleConst { tag, values }
+    }
+
+    pub fn function_call_(name: impl Into<String>, args: Vec<Self>) -> Self {
+        Self::FunctionCall {
+            name: name.into(),
+            args,
+        }
+    }
+
+    pub fn variable_(name: impl Into<String>) -> Self {
+        Self::Variable { name: name.into() }
+    }
+
+    pub fn if_(condition: Self, then: Vec<Self>, else_: Vec<Self>) -> Self {
+        Self::If {
+            condition: Box::new(condition),
+            then,
+            else_,
+        }
+    }
+
+    pub fn while_(condition: Self, body: Vec<Self>) -> Self {
+        Self::While {
+            condition: Box::new(condition),
+            body,
+        }
+    }
+
+    pub fn assignment_(name: impl Into<String>, value: Self) -> Self {
+        Self::Assignment {
+            name: name.into(),
+            value: Box::new(value),
+        }
+    }
+
+    pub fn index_(expr: Self, index: Self) -> Self {
+        Self::Index {
+            expr: Box::new(expr),
+            index: Box::new(index),
+        }
+    }
+
+    pub fn cast_(tag: TupleTag, expr: Self) -> Self {
+        Self::Cast {
+            tag,
+            expr: Box::new(expr),
+        }
     }
 }
 
@@ -219,10 +274,7 @@ impl<'a> Parser<'a> {
                 self.tokens.next();
                 let operand = self.parse_expression(100)?;
                 let args = vec![operand];
-                Ok(Expression::FunctionCall {
-                    name: "__neg".to_string(),
-                    args,
-                })
+                Ok(Expression::function_call_("__neg".to_string(), args))
             }
             Some(TokenKind::LParen) => {
                 self.expect(lexer::TokenKind::LParen)?;
@@ -235,9 +287,7 @@ impl<'a> Parser<'a> {
                 Some(Ok(lexer::Token {
                     item: TokenKind::Ident(s),
                     ..
-                })) => Ok(Expression::Variable {
-                    name: s.to_string(),
-                }),
+                })) => Ok(Expression::variable_(s.to_string())),
                 Some(Ok(t)) => Err(SyntaxError::with_pos(
                     format!("Expected identifier, got {:?}", t.item),
                     t.line,
@@ -254,7 +304,7 @@ impl<'a> Parser<'a> {
                 })) => {
                     if s.contains('.') {
                         match s.parse::<f32>() {
-                            Ok(x) => Ok(Expression::FloatConst { value: x }),
+                            Ok(x) => Ok(Expression::float_(x)),
                             Err(_) => Err(SyntaxError::with_pos(
                                 format!("Invalid float literal: {}", s),
                                 line,
@@ -263,7 +313,7 @@ impl<'a> Parser<'a> {
                         }
                     } else {
                         match s.parse::<i64>() {
-                            Ok(x) => Ok(Expression::IntConst { value: x }),
+                            Ok(x) => Ok(Expression::int_(x)),
                             Err(_) => Err(SyntaxError::with_pos(
                                 format!("Invalid int literal: {}", s),
                                 line,
@@ -295,11 +345,7 @@ impl<'a> Parser<'a> {
 
                 self.expect(lexer::TokenKind::End)?;
 
-                Ok(Expression::If {
-                    condition: Box::new(condition_expr),
-                    then: then_expr,
-                    else_: else_expr,
-                })
+                Ok(Expression::if_(condition_expr, then_expr, else_expr))
             }
             Some(TokenKind::While) => {
                 self.expect(lexer::TokenKind::While)?;
@@ -308,10 +354,7 @@ impl<'a> Parser<'a> {
                 let body_expr = self.parse_expr_block()?;
                 self.expect(lexer::TokenKind::End)?;
 
-                Ok(Expression::While {
-                    condition: Box::new(condition_expr),
-                    body: body_expr,
-                })
+                Ok(Expression::while_(condition_expr, body_expr))
             }
             None => Err(SyntaxError::with_pos(
                 "Unexpected end of input while parsing expression",
@@ -358,10 +401,7 @@ impl<'a> Parser<'a> {
                             }
                         }
                         self.expect(lexer::TokenKind::RParen)?;
-                        expr = Expression::FunctionCall {
-                            name: name.clone(),
-                            args,
-                        };
+                        expr = Expression::function_call_(name.clone(), args);
                     } else {
                         return Err(SyntaxError::with_pos(
                             "Only identifiers can be called as functions",
@@ -377,10 +417,7 @@ impl<'a> Parser<'a> {
                     self.expect(lexer::TokenKind::LBracket)?;
                     let index = self.parse_expression(1)?;
                     self.expect(lexer::TokenKind::RBracket)?;
-                    expr = Expression::Index {
-                        expr: Box::new(expr),
-                        index: Box::new(index),
-                    };
+                    expr = Expression::index_(expr, index);
                 }
                 Some(Ok(Spanned {
                     item: lexer::TokenKind::Colon,
@@ -413,13 +450,10 @@ impl<'a> Parser<'a> {
                             }
                             self.expect(lexer::TokenKind::RBracket)?;
 
-                            expr = Expression::TupleConst { tag, values: args }
+                            expr = Expression::tuple_(tag, args)
                         } else {
                             let rhs_expr = self.parse_expression(1)?;
-                            expr = Expression::Cast {
-                                tag,
-                                expr: Box::new(rhs_expr),
-                            }
+                            expr = Expression::cast_(tag, rhs_expr)
                         }
                     } else {
                         return Err(SyntaxError::with_pos(
@@ -468,10 +502,7 @@ impl<'a> Parser<'a> {
             if op_info.name == "__assign" {
                 // Check that the LHS is a variable (ie lvalue).
                 if let Expression::Variable { name } = atom_lhs {
-                    return Ok(Expression::Assignment {
-                        name: name.to_string(),
-                        value: Box::new(atom_rhs),
-                    });
+                    return Ok(Expression::assignment_(name, atom_rhs));
                 } else {
                     return Err(SyntaxError::with_pos(
                         format!("Invalid assignment: lhs is not a variable: {:?}", atom_lhs),
@@ -480,10 +511,8 @@ impl<'a> Parser<'a> {
                     ));
                 }
             } else {
-                atom_lhs = Expression::FunctionCall {
-                    name: op_info.name.to_string(),
-                    args: vec![atom_lhs, atom_rhs],
-                };
+                atom_lhs =
+                    Expression::function_call_(op_info.name.to_string(), vec![atom_lhs, atom_rhs]);
             }
         }
 
@@ -553,6 +582,8 @@ pub fn parse_module(input: &str) -> Result<Module, SyntaxError> {
 mod tests {
     use super::*;
 
+    use super::Expression as E;
+
     fn parse_as_expr(input: &str) -> Result<Expression, SyntaxError> {
         let mut parser = Parser::new(input);
         let ast = parser.parse_expression(1)?;
@@ -565,25 +596,19 @@ mod tests {
         let input = "1 + 2 * 3 / 4";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::FunctionCall {
-            name: "__add".to_string(),
-            args: vec![
-                Expression::IntConst { value: 1 },
-                Expression::FunctionCall {
-                    name: "__div".to_string(),
-                    args: vec![
-                        Expression::FunctionCall {
-                            name: "__mul".to_string(),
-                            args: vec![
-                                Expression::IntConst { value: 2 },
-                                Expression::IntConst { value: 3 },
-                            ],
-                        },
-                        Expression::IntConst { value: 4 },
+        let ast_ref = E::function_call_(
+            "__add",
+            vec![
+                E::int_(1),
+                E::function_call_(
+                    "__div",
+                    vec![
+                        E::function_call_("__mul", vec![E::int_(2), E::int_(3)]),
+                        E::int_(4),
                     ],
-                },
+                ),
             ],
-        };
+        );
 
         assert_eq!(ast, ast_ref);
         Ok(())
@@ -594,15 +619,7 @@ mod tests {
         let input = "x + 100";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::FunctionCall {
-            name: "__add".to_string(),
-            args: vec![
-                Expression::Variable {
-                    name: "x".to_string(),
-                },
-                Expression::IntConst { value: 100 },
-            ],
-        };
+        let ast_ref = E::function_call_("__add", vec![E::variable_("x"), E::int_(100)]);
 
         assert_eq!(ast, ast_ref);
         Ok(())
@@ -613,15 +630,7 @@ mod tests {
         let input = "fn(100, x)";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::FunctionCall {
-            name: "fn".to_string(),
-            args: vec![
-                Expression::IntConst { value: 100 },
-                Expression::Variable {
-                    name: "x".to_string(),
-                },
-            ],
-        };
+        let ast_ref = E::function_call_("fn", vec![E::int_(100), E::variable_("x")]);
 
         assert_eq!(ast, ast_ref);
         Ok(())
@@ -632,12 +641,7 @@ mod tests {
         let input = "x[1]";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::Index {
-            expr: Box::new(Expression::Variable {
-                name: "x".to_string(),
-            }),
-            index: Box::new(Expression::IntConst { value: 1 }),
-        };
+        let ast_ref = E::index_(E::variable_("x"), E::int_(1));
 
         assert_eq!(ast, ast_ref);
         Ok(())
@@ -648,28 +652,16 @@ mod tests {
         let input = "x + y[1 + z]";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::FunctionCall {
-            name: "__add".to_string(),
-            args: vec![
-                Expression::Variable {
-                    name: "x".to_string(),
-                },
-                Expression::Index {
-                    expr: Box::new(Expression::Variable {
-                        name: "y".to_string(),
-                    }),
-                    index: Box::new(Expression::FunctionCall {
-                        name: "__add".to_string(),
-                        args: vec![
-                            Expression::IntConst { value: 1 },
-                            Expression::Variable {
-                                name: "z".to_string(),
-                            },
-                        ],
-                    }),
-                },
+        let ast_ref = E::function_call_(
+            "__add",
+            vec![
+                E::variable_("x"),
+                E::index_(
+                    E::variable_("y"),
+                    E::function_call_("__add", vec![E::int_(1), E::variable_("z")]),
+                ),
             ],
-        };
+        );
 
         assert_eq!(ast, ast_ref);
         Ok(())
@@ -680,28 +672,10 @@ mod tests {
         let input = "(x + y)[1 + z]";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::Index {
-            expr: Box::new(Expression::FunctionCall {
-                name: "__add".to_string(),
-                args: vec![
-                    Expression::Variable {
-                        name: "x".to_string(),
-                    },
-                    Expression::Variable {
-                        name: "y".to_string(),
-                    },
-                ],
-            }),
-            index: Box::new(Expression::FunctionCall {
-                name: "__add".to_string(),
-                args: vec![
-                    Expression::IntConst { value: 1 },
-                    Expression::Variable {
-                        name: "z".to_string(),
-                    },
-                ],
-            }),
-        };
+        let ast_ref = E::index_(
+            E::function_call_("__add", vec![E::variable_("x"), E::variable_("y")]),
+            E::function_call_("__add", vec![E::int_(1), E::variable_("z")]),
+        );
 
         assert_eq!(ast, ast_ref);
         Ok(())
@@ -712,19 +686,11 @@ mod tests {
         let input = "if x < 100 then 100 else 200 end";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::If {
-            condition: Box::new(Expression::FunctionCall {
-                name: "__less".to_string(),
-                args: vec![
-                    Expression::Variable {
-                        name: "x".to_string(),
-                    },
-                    Expression::IntConst { value: 100 },
-                ],
-            }),
-            then: vec![Expression::IntConst { value: 100 }],
-            else_: vec![Expression::IntConst { value: 200 }],
-        };
+        let ast_ref = Expression::if_(
+            E::function_call_("__less", vec![E::variable_("x"), E::int_(100)]),
+            vec![E::int_(100)],
+            vec![E::int_(200)],
+        );
         assert_eq!(ast, ast_ref);
         Ok(())
     }
@@ -734,27 +700,11 @@ mod tests {
         let input = "if x < 100 then y = 10; y else 200 end";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::If {
-            condition: Box::new(Expression::FunctionCall {
-                name: "__less".to_string(),
-                args: vec![
-                    Expression::Variable {
-                        name: "x".to_string(),
-                    },
-                    Expression::IntConst { value: 100 },
-                ],
-            }),
-            then: vec![
-                Expression::Assignment {
-                    name: "y".to_string(),
-                    value: Box::new(Expression::IntConst { value: 10 }),
-                },
-                Expression::Variable {
-                    name: "y".to_string(),
-                },
-            ],
-            else_: vec![Expression::IntConst { value: 200 }],
-        };
+        let ast_ref = Expression::if_(
+            E::function_call_("__less", vec![E::variable_("x"), E::int_(100)]),
+            vec![E::assignment_("y", E::int_(10)), E::variable_("y")],
+            vec![E::int_(200)],
+        );
         assert_eq!(ast, ast_ref);
         Ok(())
     }
@@ -764,27 +714,13 @@ mod tests {
         let input = "while x < 2 do y = 1; z = 2 end";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::While {
-            condition: Box::new(Expression::FunctionCall {
-                name: "__less".to_string(),
-                args: vec![
-                    Expression::Variable {
-                        name: "x".to_string(),
-                    },
-                    Expression::IntConst { value: 2 },
-                ],
-            }),
-            body: vec![
-                Expression::Assignment {
-                    name: "y".to_string(),
-                    value: Box::new(Expression::IntConst { value: 1 }),
-                },
-                Expression::Assignment {
-                    name: "z".to_string(),
-                    value: Box::new(Expression::IntConst { value: 2 }),
-                },
+        let ast_ref = Expression::while_(
+            E::function_call_("__less", vec![E::variable_("x"), E::int_(2)]),
+            vec![
+                E::assignment_("y", E::int_(1)),
+                E::assignment_("z", E::int_(2)),
             ],
-        };
+        );
         assert_eq!(ast, ast_ref);
         Ok(())
     }
@@ -794,12 +730,7 @@ mod tests {
         let input = "-x";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::FunctionCall {
-            name: "__neg".to_string(),
-            args: vec![Expression::Variable {
-                name: "x".to_string(),
-            }],
-        };
+        let ast_ref = E::function_call_("__neg", vec![E::variable_("x")]);
         assert_eq!(ast, ast_ref);
         Ok(())
     }
@@ -809,10 +740,7 @@ mod tests {
         let input = "x = 100";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::Assignment {
-            name: "x".to_string(),
-            value: Box::new(Expression::IntConst { value: 100 }),
-        };
+        let ast_ref = E::assignment_("x", E::int_(100));
         assert_eq!(ast, ast_ref);
         Ok(())
     }
@@ -838,15 +766,7 @@ mod tests {
         let input = "x || 100";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::FunctionCall {
-            name: "__or".to_string(),
-            args: vec![
-                Expression::Variable {
-                    name: "x".to_string(),
-                },
-                Expression::IntConst { value: 100 },
-            ],
-        };
+        let ast_ref = E::function_call_("__or", vec![E::variable_("x"), E::int_(100)]);
         assert_eq!(ast, ast_ref);
         Ok(())
     }
@@ -856,13 +776,7 @@ mod tests {
         let input = "1 && 2";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::FunctionCall {
-            name: "__and".to_string(),
-            args: vec![
-                Expression::IntConst { value: 1 },
-                Expression::IntConst { value: 2 },
-            ],
-        };
+        let ast_ref = E::function_call_("__and", vec![E::int_(1), E::int_(2)]);
         assert_eq!(ast, ast_ref);
         Ok(())
     }
@@ -872,22 +786,18 @@ mod tests {
         let input = "rgba:[1,2,3,4]";
         let ast = parse_as_expr(input)?;
 
-        let ast_ref = Expression::TupleConst {
-            tag: TupleTag::Rgba,
-            values: vec![
-                Expression::IntConst { value: 1 },
-                Expression::IntConst { value: 2 },
-                Expression::IntConst { value: 3 },
-                Expression::IntConst { value: 4 },
-            ],
-        };
+        let ast_ref = Expression::tuple_(
+            TupleTag::Rgba,
+            vec![E::int_(1), E::int_(2), E::int_(3), E::int_(4)],
+        );
         assert_eq!(ast, ast_ref);
         Ok(())
     }
 
     #[test]
     fn parse_expr_error() -> Result<(), SyntaxError> {
-        let input = "\nx + +";
+        let input = "
+x + +";
         if let Err(e) = parse_as_expr(input) {
             assert!(e.message.contains("Unexpected token"));
             assert_eq!(e.line, 2);
@@ -925,14 +835,10 @@ mod tests {
         let ast_ref = Module {
             filters: vec![Filter {
                 name: "red".to_string(),
-                exprs: vec![Expression::FunctionCall {
-                    name: "rgbColor".to_string(),
-                    args: vec![
-                        Expression::IntConst { value: 1 },
-                        Expression::IntConst { value: 0 },
-                        Expression::IntConst { value: 0 },
-                    ],
-                }],
+                exprs: vec![E::function_call_(
+                    "rgbColor",
+                    vec![E::int_(1), E::int_(0), E::int_(0)],
+                )],
             }],
         };
 
@@ -953,10 +859,7 @@ mod tests {
         assert!(ast.filters[0].exprs.len() == 2);
 
         let assign_expr = &ast.filters[0].exprs[0];
-        let ast_ref = Expression::Assignment {
-            name: "z".to_string(),
-            value: Box::new(Expression::IntConst { value: 1 }),
-        };
+        let ast_ref = E::assignment_("z", E::int_(1));
         assert_eq!(assign_expr, &ast_ref);
         Ok(())
     }
