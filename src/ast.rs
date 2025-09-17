@@ -92,69 +92,96 @@ fn get_op_info(op: &lexer::TokenKind) -> Option<OpInfo> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
-    // From exprtree.h
+    // From exprtree.h.
+    // Types are determined during semantic analysis, not parsing (like clang). The alternatives would have been a completely separate
+    // AST tree with typed expressions, or external tables keyed by node id (like rustc).
     IntConst {
         value: i64,
+        ty: Type,
     },
     FloatConst {
         value: f32,
+        ty: Type,
     },
     TupleConst {
         tag: TupleTag,
         values: Vec<Expression>,
+        ty: Type,
     },
     FunctionCall {
         name: String,
         args: Vec<Expression>,
+        ty: Type,
     },
     Variable {
         name: String,
+        ty: Type,
     },
     If {
         condition: Box<Expression>,
         then: Vec<Expression>,
         else_: Vec<Expression>,
+        ty: Type,
     },
     While {
         condition: Box<Expression>,
         body: Vec<Expression>,
+        ty: Type,
     },
     Assignment {
         name: String,
         value: Box<Expression>,
+        ty: Type,
     },
     Index {
         expr: Box<Expression>,
         index: Box<Expression>,
+        ty: Type,
     },
     Cast {
         tag: TupleTag,
         expr: Box<Expression>,
+        ty: Type,
     },
 }
 
 impl Expression {
     pub fn int_(value: i64) -> Self {
-        Self::IntConst { value }
+        Self::IntConst {
+            value,
+            ty: Type::Int,
+        }
     }
 
     pub fn float_(value: f32) -> Self {
-        Self::FloatConst { value }
+        Self::FloatConst {
+            value,
+            ty: Type::Tuple(1),
+        }
     }
 
     pub fn tuple_(tag: TupleTag, values: Vec<Self>) -> Self {
-        Self::TupleConst { tag, values }
+        let len = values.len();
+        Self::TupleConst {
+            tag,
+            values,
+            ty: Type::Tuple(len),
+        }
     }
 
     pub fn function_call_(name: impl Into<String>, args: Vec<Self>) -> Self {
         Self::FunctionCall {
             name: name.into(),
             args,
+            ty: Type::Unknown,
         }
     }
 
     pub fn variable_(name: impl Into<String>) -> Self {
-        Self::Variable { name: name.into() }
+        Self::Variable {
+            name: name.into(),
+            ty: Type::Unknown,
+        }
     }
 
     pub fn if_(condition: Self, then: Vec<Self>, else_: Vec<Self>) -> Self {
@@ -162,6 +189,7 @@ impl Expression {
             condition: Box::new(condition),
             then,
             else_,
+            ty: Type::Unknown,
         }
     }
 
@@ -169,6 +197,8 @@ impl Expression {
         Self::While {
             condition: Box::new(condition),
             body,
+            // Always returns zero according to the language spec.
+            ty: Type::Int,
         }
     }
 
@@ -176,6 +206,7 @@ impl Expression {
         Self::Assignment {
             name: name.into(),
             value: Box::new(value),
+            ty: Type::Unknown,
         }
     }
 
@@ -183,6 +214,7 @@ impl Expression {
         Self::Index {
             expr: Box::new(expr),
             index: Box::new(index),
+            ty: Type::Unknown,
         }
     }
 
@@ -190,6 +222,7 @@ impl Expression {
         Self::Cast {
             tag,
             expr: Box::new(expr),
+            ty: Type::Unknown,
         }
     }
 }
@@ -387,7 +420,7 @@ impl<'a> Parser<'a> {
                     line,
                     column,
                 })) => {
-                    if let Expression::Variable { ref name } = expr {
+                    if let Expression::Variable { ref name, .. } = expr {
                         self.tokens.next(); // consume '('
                         let mut args = Vec::new();
                         if self.peek_token_kind()? != Some(lexer::TokenKind::RParen) {
@@ -427,7 +460,7 @@ impl<'a> Parser<'a> {
                     self.expect(lexer::TokenKind::Colon)?;
                     // I guess we could make special tokens for the tuple tags since they're a fixed set, but for now
                     // they're initially parsed as variables and here we turn them into literal/cast AST nodes.
-                    if let Expression::Variable { ref name } = expr {
+                    if let Expression::Variable { ref name, .. } = expr {
                         let tag = match name.as_str() {
                             "rgba" => TupleTag::Rgba,
                             "ri" => TupleTag::Ri,
@@ -501,7 +534,7 @@ impl<'a> Parser<'a> {
             // Rewrite assignments into the proper AST node.
             if op_info.name == "__assign" {
                 // Check that the LHS is a variable (ie lvalue).
-                if let Expression::Variable { name } = atom_lhs {
+                if let Expression::Variable { name, .. } = atom_lhs {
                     return Ok(Expression::assignment_(name, atom_rhs));
                 } else {
                     return Err(SyntaxError::with_pos(

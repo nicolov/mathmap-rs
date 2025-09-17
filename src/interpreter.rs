@@ -411,11 +411,11 @@ fn eval_function_call(
 
 fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Result<Value, RuntimeError> {
     match expr {
-        ast::Expression::IntConst { value } => Ok(Value::Int(*value)),
-        ast::Expression::FloatConst { value } => {
+        ast::Expression::IntConst { value, .. } => Ok(Value::Int(*value)),
+        ast::Expression::FloatConst { value, .. } => {
             Ok(Value::Tuple(TupleTag::Nil, vec![*value as f32]))
         }
-        ast::Expression::TupleConst { tag, values } => {
+        ast::Expression::TupleConst { tag, values, .. } => {
             // Here we assume that all expressions inside a tuple literal evaluate to a scalar
             // (that we promote to float to store in the tuple).
             let mut out: Vec<f32> = Vec::with_capacity(values.len());
@@ -425,7 +425,7 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Result<Valu
             }
             Ok(Value::Tuple(*tag, out))
         }
-        ast::Expression::Cast { tag, expr } => {
+        ast::Expression::Cast { tag, expr, .. } => {
             let expr_val = eval_expression(&expr, env)?;
             if let Value::Tuple(_, data) = expr_val {
                 Ok(Value::Tuple(*tag, data))
@@ -440,8 +440,8 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Result<Valu
                 ))
             }
         }
-        ast::Expression::FunctionCall { name, args } => eval_function_call(&name, &args, env),
-        ast::Expression::Variable { name } => {
+        ast::Expression::FunctionCall { name, args, .. } => eval_function_call(&name, &args, env),
+        ast::Expression::Variable { name, .. } => {
             if let Some(val) = env.values.get(name) {
                 Ok(val.clone())
             } else {
@@ -456,6 +456,7 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Result<Valu
             condition,
             then,
             else_,
+            ..
         } => {
             let cond_result = eval_expression(condition, env)?;
 
@@ -471,7 +472,9 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Result<Valu
                 Err(RuntimeError::with_pos("condition is not an int", 0, 0))
             }
         }
-        ast::Expression::While { condition, body } => {
+        ast::Expression::While {
+            condition, body, ..
+        } => {
             loop {
                 let cond_result = eval_expression(condition, env)?;
 
@@ -489,12 +492,12 @@ fn eval_expression(expr: &ast::Expression, env: &mut Environment) -> Result<Valu
             // A while loop always evaluates to 0 according to the docs.
             Ok(Value::Int(0))
         }
-        ast::Expression::Assignment { name, value } => {
+        ast::Expression::Assignment { name, value, .. } => {
             let value = eval_expression(value, env)?;
             env.values.insert(name.clone(), value.clone());
             Ok(value)
         }
-        ast::Expression::Index { expr, index } => {
+        ast::Expression::Index { expr, index, .. } => {
             let expr = eval_expression(expr, env)?;
             let index = eval_expression(index, env)?;
             if let Value::Tuple(_, data) = expr {

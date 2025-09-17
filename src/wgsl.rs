@@ -89,7 +89,7 @@ impl WgslCompiler {
         let expr_idx = self.local_var_idx;
 
         match expr {
-            ast::Expression::FunctionCall { name, args } => {
+            ast::Expression::FunctionCall { name, args, .. } => {
                 let mut s = format!(
                     "var {}_{} : vec4<f32> = ",
                     LOCAL_VAR_PREFIX, self.local_var_idx
@@ -110,7 +110,7 @@ impl WgslCompiler {
                 s.push_str(";");
                 self.writer.line(&s);
             }
-            ast::Expression::IntConst { value } => {
+            ast::Expression::IntConst { value, .. } => {
                 let mut s = format!("var {}_{} : f32 = ", LOCAL_VAR_PREFIX, self.local_var_idx);
                 self.local_var_idx += 1;
 
