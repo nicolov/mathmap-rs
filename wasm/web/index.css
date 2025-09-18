@@ -73,6 +73,11 @@ button:hover {
     background-color: #357ab8;
 }
 
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
 canvas {
     border: 1px solid #ccc;
     border-radius: 8px;

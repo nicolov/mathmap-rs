@@ -72,10 +72,38 @@ async function run() {
     await init();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
+    const downloadBtn = document.getElementById("downloadBtn");
     const width = 256, height = 256;
     canvas.width = width;
     canvas.height = height;
     let gpuState = null;
+
+    function triggerDownload(url, filename) {
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+    }
+
+    downloadBtn.addEventListener("click", () => {
+        downloadBtn.disabled = true;
+        const restore = () => {
+            downloadBtn.disabled = false;
+        };
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                restore();
+                return;
+            }
+            const url = URL.createObjectURL(blob);
+            triggerDownload(url, "mathmap.png");
+            URL.revokeObjectURL(url);
+            restore();
+        }, "image/png");
+        return;
+    });
 
     async function ensureWebGPU() {
         if (gpuState) {
