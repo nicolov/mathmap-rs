@@ -39,6 +39,74 @@
 	<script type="module">
 		import init, { make_image, compile_to_wgsl } from "./pkg/mathmap_wasm.js";
 
+		function base64EncodeUtf8(input) {
+			const bytes = new TextEncoder().encode(input);
+			let binary = "";
+			for (const byte of bytes) {
+				binary += String.fromCharCode(byte);
+			}
+			return btoa(binary);
+		}
+
+		function base64DecodeUtf8(encoded) {
+			const binary = atob(encoded);
+			const bytes = new Uint8Array(binary.length);
+			for (let i = 0; i < binary.length; i++) {
+				bytes[i] = binary.charCodeAt(i);
+			}
+			return new TextDecoder().decode(bytes);
+		}
+
+		function readStateFromFragment() {
+			const hash = window.location.hash.startsWith("#")
+				? window.location.hash.slice(1)
+				: window.location.hash;
+			if (!hash) {
+				return {};
+			}
+			const params = new URLSearchParams(hash);
+			const state = {};
+			const scriptParam = params.get("script");
+			if (scriptParam) {
+				try {
+					state.script = base64DecodeUtf8(scriptParam);
+				} catch (e) {
+					console.warn("Failed to decode script from URL fragment", e);
+				}
+			}
+			const gpuParam = params.get("gpu");
+			if (gpuParam === "1") {
+				state.gpu = true;
+			} else if (gpuParam === "0") {
+				state.gpu = false;
+			}
+			return state;
+		}
+
+		let lastFragment = window.location.hash || "";
+
+		function writeStateToFragment({ script, gpu }) {
+			const params = new URLSearchParams();
+			if (typeof gpu === "boolean") {
+				params.set("gpu", gpu ? "1" : "0");
+			}
+			if (typeof script === "string") {
+				try {
+					params.set("script", base64EncodeUtf8(script));
+				} catch (e) {
+					console.warn("Failed to encode script for URL fragment", e);
+				}
+			}
+			const newHash = params.toString();
+			const fragment = newHash ? `#${newHash}` : "";
+			if (fragment === lastFragment) {
+				return;
+			}
+			lastFragment = fragment;
+			const newUrl = `${window.location.pathname}${window.location.search}${fragment}`;
+			history.replaceState(null, "", newUrl);
+		}
+
 		async function run() {
 			await init();
 			const canvas = document.getElementById("canvas");
@@ -184,9 +252,9 @@
 			}
 
 			async function render() {
-				const text = document.getElementById("inputBox").value;
+				const text = inputBox.value;
 				try {
-					if (document.getElementById("gpuToggle").checked) {
+					if (gpuToggle.checked) {
 						await renderWebGPU(text);
 					} else {
 						const data = make_image(text);
@@ -225,31 +293,41 @@ filter red ()
 end
 `;
 			const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-
-			document.getElementById("inputBox").value = isLocalhost ? filterRed : filterTarget;
-
+			const fragmentState = readStateFromFragment();
+			const inputBox = document.getElementById("inputBox");
 			const gpuToggle = document.getElementById("gpuToggle");
 
-			// Default to WebGPU for development.
-			gpuToggle.checked = isLocalhost;
+			inputBox.value = fragmentState.script ?? (isLocalhost ? filterRed : filterTarget);
+
+			// Default to WebGPU for development unless overridden by URL fragment.
+			gpuToggle.checked = fragmentState.gpu ?? isLocalhost;
+
+			writeStateToFragment({ script: inputBox.value, gpu: gpuToggle.checked });
 
 			// Render once on page load.
 			void render();
 
 			// Render on button click.
 			document.getElementById("renderBtn").addEventListener("click", () => {
+				writeStateToFragment({ script: inputBox.value, gpu: gpuToggle.checked });
 				void render();
 			});
 
 			// Render on Cmd+Enter or Ctrl+Enter.
-			document.getElementById("inputBox").addEventListener("keydown", (e) => {
+			inputBox.addEventListener("keydown", (e) => {
 				if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
 					e.preventDefault();
+					writeStateToFragment({ script: inputBox.value, gpu: gpuToggle.checked });
 					void render();
 				}
 			});
 
+			inputBox.addEventListener("input", () => {
+				writeStateToFragment({ script: inputBox.value, gpu: gpuToggle.checked });
+			});
+
 			gpuToggle.addEventListener("change", () => {
+				writeStateToFragment({ script: inputBox.value, gpu: gpuToggle.checked });
 				void render();
 			});
 		}
