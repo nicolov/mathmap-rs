@@ -300,6 +300,16 @@ fn eval_function_call(
                 false,
             )
         }
+        "__pow" => {
+            assert!(args.len() == 2);
+            eval_binary_op(
+                &args[0],
+                &args[1],
+                |x, y| x.powf(y),
+                |x, y| x.pow(y.try_into().unwrap()),
+                false,
+            )
+        }
         "__or" => {
             assert!(args.len() == 2);
             // Only supports scalar ints for now, should we promote floats?
@@ -754,6 +764,18 @@ mod tests {
             .insert("xy".to_string(), Value::Tuple(TupleTag::Xy, vec![1.0, 2.0]));
         let val = eval_expression(&ast, &mut env)?;
         let val_expected = Value::Tuple(TupleTag::Ri, vec![1.0, 2.0]);
+        assert_eq!(val, val_expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_pow() -> Result<(), Box<dyn std::error::Error>> {
+        let input = "2 ^ 3 ^ 1.5";
+        let mut parser = Parser::new(input);
+        let ast = parser.parse_expression(1)?;
+        let mut env = Environment::new();
+        let val = eval_expression(&ast, &mut env)?;
+        let val_expected = Value::Tuple(TupleTag::Nil, vec![2.0f32.powf(3.0f32.powf(1.5f32))]);
         assert_eq!(val, val_expected);
         Ok(())
     }

@@ -86,6 +86,11 @@ fn get_op_info(op: &lexer::TokenKind) -> Option<OpInfo> {
             associativity: Associativity::Left,
             name: "__mod",
         }),
+        lexer::TokenKind::Caret => Some(OpInfo {
+            precedence: 7,
+            associativity: Associativity::Right,
+            name: "__pow",
+        }),
         _ => None,
     }
 }
