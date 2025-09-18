@@ -7,6 +7,7 @@ mod wgsl;
 
 pub use err::MathMapError;
 pub use err::SyntaxError;
+pub use err::TypeError;
 
 pub fn exec_mathmap_file(
     srcpath: &str,

@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use crate::SyntaxError;
 use crate::lexer::{self, Spanned, TokenKind};
 use crate::sema::Type;
+use crate::{SyntaxError, TypeError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TupleTag {
@@ -146,6 +146,21 @@ pub enum Expression {
 }
 
 impl Expression {
+    fn ty(&self) -> Type {
+        match self {
+            Self::IntConst { ty, .. } => ty.clone(),
+            Self::FloatConst { ty, .. } => ty.clone(),
+            Self::TupleConst { ty, .. } => ty.clone(),
+            Self::FunctionCall { ty, .. } => ty.clone(),
+            Self::Variable { ty, .. } => ty.clone(),
+            Self::If { ty, .. } => ty.clone(),
+            Self::While { ty, .. } => ty.clone(),
+            Self::Assignment { ty, .. } => ty.clone(),
+            Self::Index { ty, .. } => ty.clone(),
+            Self::Cast { ty, .. } => ty.clone(),
+        }
+    }
+
     pub fn int_(value: i64) -> Self {
         Self::IntConst {
             value,
@@ -227,10 +242,20 @@ impl Expression {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Filter {
     pub name: String,
     pub exprs: Vec<Expression>,
+}
+
+impl Filter {
+    fn ty(&self) -> Type {
+        if let Some(last_expr) = self.exprs.last() {
+            last_expr.ty()
+        } else {
+            Type::Unknown
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
