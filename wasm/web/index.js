@@ -127,7 +127,15 @@ async function run() {
         const { device, context, canvasFormat } = await ensureWebGPU();
         const shader_code = compile_to_wgsl(source);
         console.log(shader_code);
+
         const shaderModule = device.createShaderModule({ code: shader_code });
+        const info = await shaderModule.getCompilationInfo();
+        const errors = info.messages.filter(m => m.type === "error");
+        if (errors.length) {
+            const formatted = errors.map(m =>
+                `${m.lineNum}:${m.linePos} ${m.message}`).join("\n");
+            throw new Error("WGSL compilation failed:\n" + formatted);
+        }
 
         const widthU32 = width;
         const heightU32 = height;

@@ -151,7 +151,7 @@ pub enum Expression {
 }
 
 impl Expression {
-    fn ty(&self) -> Type {
+    pub fn ty(&self) -> Type {
         match self {
             Self::IntConst { ty, .. } => ty.clone(),
             Self::FloatConst { ty, .. } => ty.clone(),
