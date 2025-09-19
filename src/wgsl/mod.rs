@@ -38,36 +38,9 @@ impl LineWriter {
     }
 }
 
-const MODULE_PREAMBLE: &str = r#"
-struct OutputBuffer {
-    pixels: array<vec4<f32>>,
-};
+const MODULE_PREAMBLE: &str = include_str!("module.wgsl");
 
-struct Params {
-    size: vec2<u32>,
-};
-
-@group(0) @binding(0)
-var<storage, read_write> output: OutputBuffer;
-
-@group(0) @binding(1)
-var<uniform> params: Params;
-"#;
-
-const FILTER_PREAMBLE: &str = r#"
-
-fn rgbColor(r: f32, g: f32, b: f32) -> vec4<f32> {
-    return vec4<f32>(r, g, b, 1.0);
-}
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
-    let idx = GlobalInvocationID.x;
-    let pixel_count = params.size.x * params.size.y;
-    if (idx >= pixel_count) {
-        return;
-    }
-"#;
+const FILTER_PREAMBLE: &str = include_str!("filter.wgsl");
 
 const LOCAL_VAR_PREFIX: &str = "l";
 
@@ -93,8 +66,6 @@ impl WgslCompiler {
     }
 
     fn compile_expr(&mut self, expr: &ast::Expression) -> Result<usize, TypeError> {
-        let expr_idx = self.local_var_idx;
-
         match expr {
             ast::Expression::FunctionCall { name, args, .. } => {
                 // Compile args and keep track of their variable idx.
