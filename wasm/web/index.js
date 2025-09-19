@@ -123,31 +123,11 @@ async function run() {
         return gpuState;
     }
 
-    function getErrorSink(renderPass) {
-        let log = "";
-        const flush = () => {
-            if (log) {
-                console.error("WGSL validation failed:\n" + log);
-                log = "";
-            }
-        };
-        renderPass.addEventListener("error", (event) => {
-            log += `${event.message}\n`;
-        });
-        renderPass.addEventListener("validationcomplete", flush);
-        return { flush };
-    }
-
     async function renderWebGPU(source) {
         const { device, context, canvasFormat } = await ensureWebGPU();
-        const renderPass = device.createCommandEncoder();
-        const { shader, errors } = compile_to_wgsl(source);
-        if (errors) {
-            throw new Error(errors);
-        }
-        const shaderModule = device.createShaderModule({ code: shader });
-        const errorSink = getErrorSink(shaderModule);
-        errorSink.flush();
+        const shader_code = compile_to_wgsl(source);
+        console.log(shader_code);
+        const shaderModule = device.createShaderModule({ code: shader_code });
 
         const widthU32 = width;
         const heightU32 = height;
@@ -157,10 +137,6 @@ async function run() {
         const storageBuffer = device.createBuffer({
             size: bufferSize,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-        });
-        const stagingBuffer = device.createBuffer({
-            size: bufferSize,
-            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
         });
 
         const uniformBuffer = device.createBuffer({
@@ -173,7 +149,11 @@ async function run() {
 
         const bindGroupLayout = device.createBindGroupLayout({
             entries: [
-                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: {} },
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "storage" },
+                },
                 {
                     binding: 1,
                     visibility: GPUShaderStage.COMPUTE,
@@ -198,38 +178,142 @@ async function run() {
             ],
         });
 
+        const texture = device.createTexture({
+            size: [width, height],
+            format: "rgba32float",
+            usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
+        });
+
+        const sampler = device.createSampler({
+            magFilter: "nearest",
+            minFilter: "nearest",
+        });
+
+        const quadShader = device.createShaderModule({
+            code: `
+struct VertexOutput {
+    @builtin(position) pos : vec4<f32>,
+    @location(0) uv : vec2<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) idx : u32) -> VertexOutput {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0),
+        vec2<f32>( 3.0,  1.0),
+        vec2<f32>(-1.0,  1.0)
+    );
+    var uvCoords = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 2.0),
+        vec2<f32>(2.0, 0.0),
+        vec2<f32>(0.0, 0.0)
+    );
+
+    var out : VertexOutput;
+    out.pos = vec4<f32>(positions[idx], 0.0, 1.0);
+    out.uv  = uvCoords[idx];
+    return out;
+}
+
+@group(0) @binding(0) var tex : texture_2d<f32>;
+@group(0) @binding(1) var samp : sampler;
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let c = textureSample(tex, samp, in.uv);
+    return clamp(c, vec4<f32>(0.0), vec4<f32>(1.0));
+}
+        `,
+        });
+
+        const renderBindGroupLayout = device.createBindGroupLayout({
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {
+                        sampleType: "unfilterable-float",
+                    },
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {
+                        type: "non-filtering",
+                    },
+                },
+            ],
+        });
+
+        const renderPipelineLayout = device.createPipelineLayout({
+            bindGroupLayouts: [renderBindGroupLayout],
+        });
+
+        const renderPipeline = device.createRenderPipeline({
+            layout: renderPipelineLayout,
+            vertex: { module: quadShader, entryPoint: "vs_main" },
+            fragment: {
+                module: quadShader,
+                entryPoint: "fs_main",
+                targets: [{ format: canvasFormat }],
+            },
+            primitive: { topology: "triangle-list" },
+        });
+
+        const renderBindGroup = device.createBindGroup({
+            layout: renderBindGroupLayout,
+            entries: [
+                { binding: 0, resource: texture.createView() },
+                { binding: 1, resource: sampler },
+            ],
+        });
+
         const commandEncoder = device.createCommandEncoder();
-        const passEncoder = commandEncoder.beginComputePass();
-        passEncoder.setPipeline(pipeline);
-        passEncoder.setBindGroup(0, bindGroup);
-        const workgroupSize = 8;
-        const workgroupCountX = Math.ceil(width / workgroupSize);
-        const workgroupCountY = Math.ceil(height / workgroupSize);
-        passEncoder.dispatchWorkgroups(workgroupCountX, workgroupCountY);
-        passEncoder.end();
 
-        commandEncoder.copyBufferToBuffer(storageBuffer, 0, stagingBuffer, 0, bufferSize);
-
-        const gpuCommands = commandEncoder.finish();
-        device.queue.submit([gpuCommands]);
-
-        await stagingBuffer.mapAsync(GPUMapMode.READ);
-        const data = stagingBuffer.getMappedRange();
-        const floatPixels = new Float32Array(data);
-        const rgba = new Uint8ClampedArray(pixelCount * 4);
-        for (let i = 0; i < pixelCount; i++) {
-            const base = i * 4;
-            rgba[base + 0] = Math.min(255, Math.max(0, Math.round(floatPixels[base + 0] * 255)));
-            rgba[base + 1] = Math.min(255, Math.max(0, Math.round(floatPixels[base + 1] * 255)));
-            rgba[base + 2] = Math.min(255, Math.max(0, Math.round(floatPixels[base + 2] * 255)));
-            rgba[base + 3] = Math.min(255, Math.max(0, Math.round(floatPixels[base + 3] * 255)));
+        {
+            // Compute pass to render the filter.
+            const passEncoder = commandEncoder.beginComputePass();
+            passEncoder.setPipeline(pipeline);
+            passEncoder.setBindGroup(0, bindGroup);
+            const workgroupSize = 8;
+            const workgroupCountX = Math.ceil(width / workgroupSize);
+            const workgroupCountY = Math.ceil(height / workgroupSize);
+            passEncoder.dispatchWorkgroups(workgroupCountX, workgroupCountY);
+            passEncoder.end();
         }
-        stagingBuffer.unmap();
+
+        // Copy output of the compute shader to a texture that can be read
+        // by the render shaders.
+        commandEncoder.copyBufferToTexture(
+            {
+                buffer: storageBuffer,
+                bytesPerRow: width * 16, // 4 floats × 4 bytes
+            },
+            { texture },
+            { width, height }
+        );
+
+        {
+            const renderPass = commandEncoder.beginRenderPass({
+                colorAttachments: [
+                    {
+                        view: context.getCurrentTexture().createView(),
+                        loadOp: "clear",
+                        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                        storeOp: "store",
+                    },
+                ],
+            });
+            renderPass.setPipeline(renderPipeline);
+            renderPass.setBindGroup(0, renderBindGroup);
+            renderPass.draw(6);
+            renderPass.end();
+        }
+
+        device.queue.submit([commandEncoder.finish()]);
+
         storageBuffer.destroy();
-        stagingBuffer.destroy();
         uniformBuffer.destroy();
-        const imgData = new ImageData(rgba, width, height);
-        ctx.putImageData(imgData, 0, 0);
     }
 
     function setError(message) {
@@ -328,7 +412,8 @@ end
 
     gpuToggle.addEventListener("change", () => {
         writeStateToFragment({ script: inputBox.value, gpu: gpuToggle.checked });
-        void render();
+        // Can't use WebGPU and 2d contextes at the same time.
+        window.location.reload();
     });
 }
 
