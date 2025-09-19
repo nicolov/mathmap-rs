@@ -71,7 +71,6 @@ function writeStateToFragment({ script, gpu }) {
 async function run() {
     await init();
     const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
     const downloadBtn = document.getElementById("downloadBtn");
     const width = 256, height = 256;
     canvas.width = width;
@@ -142,7 +141,7 @@ async function run() {
     async function renderWebGPU(source) {
         const { device, context, canvasFormat } = await ensureWebGPU();
         const renderPass = device.createCommandEncoder();
-        const { shader, errors } = compileToWgsl(source);
+        const { shader, errors } = compile_to_wgsl(source);
         if (errors) {
             throw new Error(errors);
         }
@@ -267,6 +266,7 @@ async function run() {
                     width,
                     height
                 );
+                const ctx = canvas.getContext("2d");
                 ctx.putImageData(imgData, 0, 0);
             }
             setError(null);
