@@ -132,6 +132,13 @@ impl WgslCompiler {
 
                 Ok(idx)
             }
+            ast::Expression::Variable { name, ty } => {
+                let (mut s, idx) = self.var_decl(&ty);
+                s.push_str(name);
+                s.push_str(";");
+                self.writer.line(&s);
+                Ok(idx)
+            }
             _ => Err(TypeError::with_pos(
                 format!("unimplemented expr {:?}", expr),
                 0,
@@ -188,11 +195,14 @@ mod tests {
 
     fn compile_expr(src: &str) -> Result<String, Box<dyn Error>> {
         let mut parser = Parser::new(src);
-        let mut ast = parser.parse_expression(1)?;
+        let mut ast = parser.parse_expr_block()?;
         let mut sema = SemanticAnalyzer::new();
-        sema.analyze_expr(&mut ast)?;
+
         let mut compiler = WgslCompiler::new();
-        compiler.compile_expr(&ast)?;
+        for expr in &mut ast {
+            sema.analyze_expr(expr)?;
+            compiler.compile_expr(&expr)?;
+        }
         Ok(compiler.writer.finish())
     }
 
@@ -222,7 +232,15 @@ mod tests {
 
     #[test]
     fn assign() -> Result<(), Box<dyn std::error::Error>> {
-        let input = "z = 1;";
+        let input = "z = 1";
+        compile_expr(input)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn variable() -> Result<(), Box<dyn std::error::Error>> {
+        let input = "z = 2; 1 + z";
         compile_expr(input)?;
 
         if let Ok(out) = compile_expr(input) {

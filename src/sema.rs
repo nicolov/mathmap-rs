@@ -189,14 +189,29 @@ impl FunctionTable {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct SymbolTable {
+    vars: HashMap<String, Type>,
+}
+
+impl SymbolTable {
+    fn new() -> Self {
+        Self {
+            vars: HashMap::new(),
+        }
+    }
+}
+
 pub struct SemanticAnalyzer {
     func_table: FunctionTable,
+    vars: SymbolTable,
 }
 
 impl SemanticAnalyzer {
     pub fn new() -> Self {
         Self {
             func_table: FunctionTable::new(),
+            vars: SymbolTable::new(),
         }
     }
 
@@ -242,14 +257,26 @@ impl SemanticAnalyzer {
                 *ty = func.def.signature.ret.clone();
                 Ok(())
             }
-            Expression::Assignment { value, ty, .. } => {
-                // todo: probably need to add to the symbol table.
+            Expression::Assignment { name, value, ty } => {
                 self.analyze_expr(value)?;
                 *ty = value.ty();
+                self.vars.vars.insert(name.clone(), value.ty());
                 Ok(())
             }
+            Expression::Variable { name, ty, .. } => {
+                if let Some(sym_ty) = self.vars.vars.get(name) {
+                    *ty = sym_ty.clone();
+                    Ok(())
+                } else {
+                    Err(TypeError::with_pos(
+                        format!("variable {} not found", name),
+                        0,
+                        0,
+                    ))
+                }
+            }
             _ => Err(TypeError::with_pos(
-                format!("unimplemented expression {:?}", expr),
+                format!("sema unimplemented expr {:?}", expr),
                 0,
                 0,
             )),
