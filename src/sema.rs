@@ -2,7 +2,7 @@
 
 #![allow(dead_code)]
 
-use crate::ast;
+use crate::ast::{self, TupleTag};
 use crate::err::TypeError;
 use ast::Expression;
 use std::collections::HashMap;
@@ -12,6 +12,7 @@ pub enum Type {
     #[default]
     Unknown,
     Int,
+    // todo: add TupleTag.
     Tuple(usize),
 }
 
@@ -216,6 +217,28 @@ impl SemanticAnalyzer {
                     args.iter().map(|x| x.ty()).collect::<Vec<_>>().as_slice(),
                 )?;
 
+                // Insert cast AST nodes following overload resolution.
+                for (i, cast) in func.casts.iter().enumerate() {
+                    if let Some(cast) = cast {
+                        if let Type::Tuple(..) = cast {
+                            let node = Expression::Cast {
+                                tag: TupleTag::Nil,
+                                expr: Box::new(args[i].clone()),
+                                ty: (*cast).clone(),
+                            };
+                            args[i] = node;
+                        } else {
+                            return Err(TypeError::with_pos(
+                                "for now only casts to float tuples are implemented",
+                                0,
+                                0,
+                            )
+                            .into());
+                        }
+                    }
+                }
+
+                // Annotate the return type.
                 *ty = func.def.signature.ret.clone();
                 Ok(())
             }
@@ -276,12 +299,27 @@ mod tests {
     #[test]
     fn add_int_and_float() -> Result<(), Box<dyn Error>> {
         let expr = analyze_expr("1 + 2.0")?;
-        if let E::FunctionCall { ty, .. } = expr {
-            assert_eq!(ty, Type::Tuple(1));
+        if let E::FunctionCall { ty, .. } = &expr {
+            assert_eq!(*ty, Type::Tuple(1));
         } else {
             panic!("expected function call");
         }
-        Ok(())
+
+        let expected_ast = E::FunctionCall {
+            name: "__add".to_string(),
+            args: vec![
+                E::Cast {
+                    tag: TupleTag::Nil,
+                    expr: Box::new(E::int_(1)),
+                    ty: Type::Tuple(1),
+                },
+                E::float_(2.0),
+            ],
+            ty: Type::Tuple(1),
+        };
+
+        assert_eq!(expr, expected_ast);
+		Ok(())
     }
 }
 
@@ -289,6 +327,10 @@ mod tests {
 mod fn_table_tests {
     use super::*;
     use std::error::Error;
+
+    fn _num_casts(res: &OverloadResolutionResult) -> usize {
+        res.casts.iter().filter(|x| x.is_some()).count()
+    }
 
     #[test]
     fn not_found() -> Result<(), Box<dyn Error>> {
@@ -313,14 +355,26 @@ mod fn_table_tests {
             "rgbColor",
             &vec![Type::Tuple(1), Type::Tuple(1), Type::Tuple(1)],
         )?;
-        dbg!(&hello_fn);
 
-        let OverloadResolutionResult { def, casts } = hello_fn;
+        let OverloadResolutionResult { def, .. } = &hello_fn;
         assert_eq!(def.signature.name, "rgbColor");
         assert_eq!(def.signature.params.len(), 3);
         assert_eq!(def.signature.ret, Type::Tuple(4));
-        // No implicit casts required.
-        assert_eq!(casts.iter().filter(|x| x.is_some()).count(), 0);
+        assert_eq!(_num_casts(&hello_fn), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn lookup_cast() -> Result<(), Box<dyn Error>> {
+        let fns = FunctionTable::new();
+        let hello_fn = fns.lookup("rgbColor", &vec![Type::Int, Type::Tuple(1), Type::Int])?;
+
+        let OverloadResolutionResult { def, .. } = &hello_fn;
+        assert_eq!(def.signature.name, "rgbColor");
+        assert_eq!(def.signature.params.len(), 3);
+        assert_eq!(def.signature.ret, Type::Tuple(4));
+        assert_eq!(_num_casts(&hello_fn), 2);
 
         Ok(())
     }
