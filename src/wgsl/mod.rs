@@ -68,14 +68,16 @@ impl WgslCompiler {
 
     fn compile_expr(&mut self, expr: &ast::Expression) -> Result<usize, TypeError> {
         match expr {
-            ast::Expression::FunctionCall { name, args, .. } => {
+            ast::Expression::FunctionCall { name, args, ty } => {
                 // Compile args and keep track of their variable idx.
                 let args_idxs: Vec<_> = args
                     .into_iter()
                     .map(|arg_expr| self.compile_expr(arg_expr))
                     .collect::<Result<_, _>>()?;
 
-                let (mut decl, idx) = self.var_decl(&sema::Type::Tuple(4));
+                let (mut decl, idx) = self.var_decl(ty);
+                // Mangle the function name because wgsl doesn't allow leading double underscore..
+                decl.push_str("FN_");
                 decl.push_str(name);
                 decl.push_str("(");
                 decl.push_str(
@@ -197,10 +199,10 @@ mod tests {
         let mut parser = Parser::new(src);
         let mut ast = parser.parse_expr_block()?;
         let mut sema = SemanticAnalyzer::new();
+        sema.analyze_expr_block(&mut ast)?;
 
         let mut compiler = WgslCompiler::new();
         for expr in &mut ast {
-            sema.analyze_expr(expr)?;
             compiler.compile_expr(&expr)?;
         }
         Ok(compiler.writer.finish())
@@ -213,7 +215,7 @@ mod tests {
         end";
         let ast = ast::parse_module(input)?;
         let filter = &ast.filters[0];
-        compile_filter(filter);
+        compile_filter(filter)?;
 
         Ok(())
     }

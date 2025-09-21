@@ -88,6 +88,20 @@ impl FunctionTable {
         );
 
         fns.insert(
+            "grayColor".to_string(),
+            vec![FuncDef {
+                signature: FuncSignature {
+                    name: "grayColor".to_string(),
+                    params: vec![FuncParam {
+                        name: "x".to_string(),
+                        ty: Type::Tuple(1),
+                    }],
+                    ret: Type::Tuple(4),
+                },
+            }],
+        );
+
+        fns.insert(
             "__add".to_string(),
             vec![
                 FuncDef {
@@ -120,6 +134,29 @@ impl FunctionTable {
                             },
                         ],
                         ret: Type::Int,
+                    },
+                },
+            ],
+        );
+
+        fns.insert(
+            "__div".to_string(),
+            vec![
+                // div is floating point only, we rely on implicit type casts.
+                FuncDef {
+                    signature: FuncSignature {
+                        name: "__div".to_string(),
+                        params: vec![
+                            FuncParam {
+                                name: "x".to_string(),
+                                ty: Type::Tuple(1),
+                            },
+                            FuncParam {
+                                name: "y".to_string(),
+                                ty: Type::Tuple(1),
+                            },
+                        ],
+                        ret: Type::Tuple(1),
                     },
                 },
             ],
@@ -178,7 +215,7 @@ impl FunctionTable {
 
             if matches.len() > 1 && matches[1].1 == *best_cost {
                 return Err(TypeError::with_pos(
-                    format!("ambiguous overload for function {:?}", name),
+                    format!("ambiguous overload for function {:?}, {:?}", name, matches),
                     0,
                     0,
                 ));
@@ -196,9 +233,11 @@ struct SymbolTable {
 
 impl SymbolTable {
     fn new() -> Self {
-        Self {
-            vars: HashMap::new(),
-        }
+        let mut vars = HashMap::new();
+        vars.insert("x".to_string(), Type::Tuple(1));
+        vars.insert("y".to_string(), Type::Tuple(1));
+
+        Self { vars: vars }
     }
 }
 
@@ -283,13 +322,18 @@ impl SemanticAnalyzer {
         }
     }
 
+    pub fn analyze_expr_block(&mut self, exprs: &mut Vec<Expression>) -> Result<(), TypeError> {
+        for expr in exprs {
+            self.analyze_expr(expr)?;
+        }
+        Ok(())
+    }
+
     pub fn analyze_filter(&mut self, filter: &mut ast::Filter) -> Result<(), TypeError> {
         if filter.exprs.is_empty() {
             return Err(TypeError::with_pos("empty filter", 0, 0));
         }
-        for expr in &mut filter.exprs {
-            self.analyze_expr(expr)?;
-        }
+        self.analyze_expr_block(&mut filter.exprs)?;
         Ok(())
     }
 }
@@ -301,19 +345,19 @@ mod tests {
     use ast::Parser;
     use std::error::Error;
 
-    fn analyze_expr(src: &str) -> Result<Expression, Box<dyn Error>> {
+    fn analyze_expr(src: &str) -> Result<Vec<Expression>, Box<dyn Error>> {
         let mut parser = Parser::new(src);
-        let mut ast = parser.parse_expression(1)?;
+        let mut ast = parser.parse_expr_block()?;
         let mut sema = SemanticAnalyzer::new();
-        sema.analyze_expr(&mut ast)?;
+        sema.analyze_expr_block(&mut ast)?;
         Ok(ast)
     }
 
     #[test]
     fn int_constant() -> Result<(), Box<dyn Error>> {
-        let expr = analyze_expr("1")?;
+        let expr = &analyze_expr("1")?[0];
         if let E::IntConst { ty, .. } = expr {
-            assert_eq!(ty, Type::Int);
+            assert_eq!(*ty, Type::Int);
         } else {
             panic!("expected int constant");
         }
@@ -322,9 +366,9 @@ mod tests {
 
     #[test]
     fn add_ints() -> Result<(), Box<dyn Error>> {
-        let expr = analyze_expr("1 + 2")?;
+        let expr = &analyze_expr("1 + 2")?[0];
         if let E::FunctionCall { ty, .. } = expr {
-            assert_eq!(ty, Type::Int);
+            assert_eq!(*ty, Type::Int);
         } else {
             panic!("expected function call");
         }
@@ -333,7 +377,7 @@ mod tests {
 
     #[test]
     fn add_int_and_float() -> Result<(), Box<dyn Error>> {
-        let expr = analyze_expr("1 + 2.0")?;
+        let expr = &analyze_expr("1 + 2.0")?[0];
         if let E::FunctionCall { ty, .. } = &expr {
             assert_eq!(*ty, Type::Tuple(1));
         } else {
@@ -353,17 +397,17 @@ mod tests {
             ty: Type::Tuple(1),
         };
 
-        assert_eq!(expr, expected_ast);
+        assert_eq!(*expr, expected_ast);
         Ok(())
     }
 
     #[test]
     fn assignment() -> Result<(), Box<dyn Error>> {
-        let expr = analyze_expr("x = 1")?;
+        let expr = &analyze_expr("x = 1")?[0];
         if let E::Assignment { name, value, ty } = expr {
             assert_eq!(name, "x");
             assert_eq!(value.ty(), Type::Int);
-            assert_eq!(ty, Type::Int);
+            assert_eq!(*ty, Type::Int);
         } else {
             panic!("expected assignment");
         }
