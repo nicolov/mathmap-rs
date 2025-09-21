@@ -19,7 +19,7 @@ impl LineWriter {
 
     fn line(&mut self, text: &str) {
         for _ in 0..self.indent_level {
-            self.buf.push_str("  ");
+            self.buf.push_str("    ");
         }
         self.buf.push_str(&text);
         self.buf.push('\n');
@@ -102,6 +102,15 @@ impl WgslCompiler {
                 self.writer.line(&s);
                 Ok(idx)
             }
+            ast::Expression::Cast { tag, expr, ty } => {
+                let expr_idx = self.compile_expr(expr)?;
+                let (mut s, idx) = self.var_decl(&ty);
+                s.push_str(
+                    format!("{}({}_{});", ty.as_wgsl(), LOCAL_VAR_PREFIX, expr_idx).as_str(),
+                );
+                self.writer.line(&s);
+                Ok(idx)
+            }
             _ => Err(TypeError::with_pos(
                 format!("unimplemented expression {:?}", expr),
                 0,
@@ -139,7 +148,7 @@ pub fn compile_filter(filter: &ast::Filter) -> Result<String, MathMapError> {
     let mut sema = crate::sema::SemanticAnalyzer::new();
     sema.analyze_filter(&mut filt)?;
     let mut compiler = WgslCompiler::new();
-    compiler.compile_filter(filter)?;
+    compiler.compile_filter(&filt)?;
     Ok(compiler.writer.finish())
 }
 
@@ -159,6 +168,18 @@ mod tests {
         if let Ok(out) = out {
             println!("{}", out);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn filter_with_cast() -> Result<(), Box<dyn std::error::Error>> {
+        let input = "filter red ()
+            rgbColor(1, 0, 0)
+        end";
+        let ast = ast::parse_module(input)?;
+        let filter = &ast.filters[0];
+        let out = compile_filter(filter)?;
 
         Ok(())
     }
