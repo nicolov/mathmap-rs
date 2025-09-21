@@ -200,7 +200,7 @@ impl SemanticAnalyzer {
         }
     }
 
-    fn analyze_expr(&mut self, expr: &mut Expression) -> Result<(), TypeError> {
+    pub fn analyze_expr(&mut self, expr: &mut Expression) -> Result<(), TypeError> {
         match expr {
             // Types of int and float literals are already filled in by the parser.
             Expression::IntConst { .. } => Ok(()),
@@ -242,9 +242,17 @@ impl SemanticAnalyzer {
                 *ty = func.def.signature.ret.clone();
                 Ok(())
             }
-            _ => {
-                todo!();
+            Expression::Assignment { value, ty, .. } => {
+                // todo: probably need to add to the symbol table.
+                self.analyze_expr(value)?;
+                *ty = value.ty();
+                Ok(())
             }
+            _ => Err(TypeError::with_pos(
+                format!("unimplemented expression {:?}", expr),
+                0,
+                0,
+            )),
         }
     }
 
@@ -319,7 +327,20 @@ mod tests {
         };
 
         assert_eq!(expr, expected_ast);
-		Ok(())
+        Ok(())
+    }
+
+    #[test]
+    fn assignment() -> Result<(), Box<dyn Error>> {
+        let expr = analyze_expr("x = 1")?;
+        if let E::Assignment { name, value, ty } = expr {
+            assert_eq!(name, "x");
+            assert_eq!(value.ty(), Type::Int);
+            assert_eq!(ty, Type::Int);
+        } else {
+            panic!("expected assignment");
+        }
+        Ok(())
     }
 }
 

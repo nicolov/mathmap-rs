@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+use crate::ast::Expression;
 use crate::{MathMapError, TypeError, ast, sema};
 
 struct LineWriter {
@@ -111,12 +112,42 @@ impl WgslCompiler {
                 self.writer.line(&s);
                 Ok(idx)
             }
+            ast::Expression::Assignment { name, value, ty } => {
+                let value_idx = self.compile_expr(value)?;
+
+                // Same logic as self.var_decl, but use the existing name to make
+                // debugging easier.
+                let idx = self.local_var_idx;
+                let s = format!("var {}_{} : {} = ", LOCAL_VAR_PREFIX, idx, ty.as_wgsl());
+                self.local_var_idx += 1;
+
+                let s = format!(
+                    "var {} : {} = {}_{};",
+                    name,
+                    ty.as_wgsl(),
+                    LOCAL_VAR_PREFIX,
+                    value_idx
+                );
+                self.writer.line(&s);
+
+                Ok(idx)
+            }
             _ => Err(TypeError::with_pos(
-                format!("unimplemented expression {:?}", expr),
+                format!("unimplemented expr {:?}", expr),
                 0,
                 0,
             )),
         }
+    }
+
+    fn compile_expr_block(&mut self, exprs: &Vec<Expression>) -> Result<usize, TypeError> {
+        let mut last_expr_idx = 0;
+
+        for expr in exprs {
+            last_expr_idx = self.compile_expr(expr)?;
+        }
+
+        Ok(last_expr_idx)
     }
 
     fn compile_filter(&mut self, filter: &ast::Filter) -> Result<(), MathMapError> {
@@ -125,11 +156,7 @@ impl WgslCompiler {
 
         self.writer.indent();
 
-        let mut last_expr_idx = 0;
-
-        for expr in &filter.exprs {
-            last_expr_idx = self.compile_expr(expr)?;
-        }
+        let last_expr_idx = self.compile_expr_block(&filter.exprs)?;
 
         // Assign the last expression to the output buffer.
         self.writer.line(&format!(
@@ -155,6 +182,19 @@ pub fn compile_filter(filter: &ast::Filter) -> Result<String, MathMapError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ast::Parser;
+    use sema::SemanticAnalyzer;
+    use std::error::Error;
+
+    fn compile_expr(src: &str) -> Result<String, Box<dyn Error>> {
+        let mut parser = Parser::new(src);
+        let mut ast = parser.parse_expression(1)?;
+        let mut sema = SemanticAnalyzer::new();
+        sema.analyze_expr(&mut ast)?;
+        let mut compiler = WgslCompiler::new();
+        compiler.compile_expr(&ast)?;
+        Ok(compiler.writer.finish())
+    }
 
     #[test]
     fn filter() -> Result<(), Box<dyn std::error::Error>> {
@@ -163,11 +203,7 @@ mod tests {
         end";
         let ast = ast::parse_module(input)?;
         let filter = &ast.filters[0];
-        let out = compile_filter(filter);
-
-        if let Ok(out) = out {
-            println!("{}", out);
-        }
+        compile_filter(filter);
 
         Ok(())
     }
@@ -179,7 +215,19 @@ mod tests {
         end";
         let ast = ast::parse_module(input)?;
         let filter = &ast.filters[0];
-        let out = compile_filter(filter)?;
+        compile_filter(filter)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn assign() -> Result<(), Box<dyn std::error::Error>> {
+        let input = "z = 1;";
+        compile_expr(input)?;
+
+        if let Ok(out) = compile_expr(input) {
+            println!("{}", out);
+        }
 
         Ok(())
     }
