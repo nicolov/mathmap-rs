@@ -14,6 +14,8 @@ pub enum Type {
     Int,
     // todo: add TupleTag.
     Tuple(usize),
+    // TupleVar is for polymorphic function defs, eg abs(tuple<N>) -> tuple<N>.
+    TupleVar(char),
 }
 
 impl Type {
@@ -57,6 +59,8 @@ pub struct FunctionTable {
 struct OverloadResolutionResult<'a> {
     def: &'a FuncDef,
     casts: Vec<Option<Type>>,
+    // Actual return type where typevars were replaced with concrete tuple lengths.
+    ret_ty: Type,
 }
 
 impl FunctionTable {
@@ -162,6 +166,20 @@ impl FunctionTable {
             ],
         );
 
+        fns.insert(
+            "abs".to_string(),
+            vec![FuncDef {
+                signature: FuncSignature {
+                    name: "abs".to_string(),
+                    params: vec![FuncParam {
+                        name: "x".to_string(),
+                        ty: Type::TupleVar('N'),
+                    }],
+                    ret: Type::TupleVar('N'),
+                },
+            }],
+        );
+
         Self { functions: fns }
     }
 
@@ -185,20 +203,74 @@ impl FunctionTable {
             let mut num_casts = 0;
             let mut compatible = true;
 
+            // Mapping from typevar chars to the actual length of the tuple.
+            let mut typevars = HashMap::new();
+
             for (current_ty, param_ty) in arg_tys.iter().zip(cand.signature.params.iter()) {
-                if current_ty == &param_ty.ty {
-                    casts.push(None);
-                } else if current_ty == &Type::Int && param_ty.ty == Type::Tuple(1) {
-                    casts.push(Some(Type::Tuple(1)));
-                    num_casts += 1;
-                } else {
-                    compatible = false;
-                    break;
+                match (current_ty, &param_ty.ty) {
+                    (Type::Int, Type::Int) => {
+                        casts.push(None);
+                    }
+                    (Type::Tuple(1), Type::Tuple(1)) => {
+                        // todo: make this generic with Tuple(N).
+                        casts.push(None);
+                    }
+                    (Type::Int, Type::Tuple(1)) => {
+                        // todo: also promote an int to a Tuple(N) when the signature is
+                        // polymorphic.
+                        casts.push(Some(Type::Tuple(1)));
+                        num_casts += 1;
+                    }
+                    (Type::Tuple(n), Type::TupleVar(tv)) => {
+                        match typevars.get(&tv) {
+                            Some(n2) => {
+                                // We already have a substitution for this typevar, and
+                                // it must match the concrete type, otherwise we skip this
+                                // overload candidate.
+                                if n == n2 {
+                                    casts.push(None);
+                                } else {
+                                    compatible = false;
+                                    break;
+                                }
+                            }
+                            None => {
+                                // Record this unification.
+                                typevars.insert(tv, *n);
+                            }
+                        }
+                    }
+                    _ => {
+                        compatible = false;
+                        break;
+                    }
                 }
             }
 
             if compatible {
-                matches.push((OverloadResolutionResult { def: cand, casts }, num_casts));
+                let ret_ty = match &cand.signature.ret {
+                    Type::TupleVar(tv) => match typevars.get(&tv) {
+                        Some(n) => Type::Tuple(*n),
+                        None => {
+                            // This should never happen if the signatures are well formed, but don't really check them yet..
+                            return Err(TypeError::with_pos(
+                                format!("unknown typevar {}", tv),
+                                0,
+                                0,
+                            ));
+                        }
+                    },
+                    x => x.clone(),
+                };
+
+                matches.push((
+                    OverloadResolutionResult {
+                        def: cand,
+                        casts,
+                        ret_ty,
+                    },
+                    num_casts,
+                ));
             }
         }
 
@@ -236,6 +308,7 @@ impl SymbolTable {
         let mut vars = HashMap::new();
         vars.insert("x".to_string(), Type::Tuple(1));
         vars.insert("y".to_string(), Type::Tuple(1));
+        vars.insert("xy".to_string(), Type::Tuple(2));
 
         Self { vars: vars }
     }
@@ -292,8 +365,8 @@ impl SemanticAnalyzer {
                     }
                 }
 
-                // Annotate the return type.
-                *ty = func.def.signature.ret.clone();
+                // Annotate the return type with the (potentially polymorphic) return type.
+                *ty = func.ret_ty.clone();
                 Ok(())
             }
             Expression::Assignment { name, value, ty } => {
@@ -410,6 +483,20 @@ mod tests {
             assert_eq!(*ty, Type::Int);
         } else {
             panic!("expected assignment");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn polymorphic() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("abs(xy)")?[0];
+        if let E::FunctionCall { name, args, ty } = expr {
+            assert_eq!(name, "abs");
+            assert_eq!(args.len(), 1);
+            assert_eq!(args[0].ty(), Type::Tuple(2));
+            assert_eq!(*ty, Type::Tuple(2));
+        } else {
+            panic!("expected function call");
         }
         Ok(())
     }
