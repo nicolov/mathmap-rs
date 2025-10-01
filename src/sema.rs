@@ -206,9 +206,9 @@ impl FunctionTable {
             // Mapping from typevar chars to the actual length of the tuple.
             let mut typevars = HashMap::new();
 
-			// Match the actual argument type with the corresponding parameter in the function signature.
+            // Match the actual argument type with the corresponding parameter in the function signature.
             for (current_ty, param_ty) in arg_tys.iter().zip(cand.signature.params.iter()) {
-				// todo: simplify by handling type promotion (first) and broadcasting (second) in two separate steps.
+                // todo: simplify by handling type promotion (first) and broadcasting (second) in two separate steps.
                 match (current_ty, &param_ty.ty) {
                     (Type::Int, Type::Int) => {
                         casts.push(None);
@@ -223,24 +223,24 @@ impl FunctionTable {
                         casts.push(Some(Type::Tuple(1)));
                         num_casts += 1;
                     }
-					(Type::Int, Type::TupleVar(tv)) => {
-						match typevars.get(&tv) {
-							Some(n2) => {
-								// We already have a substitution for this typevar, and it must be 1 to unify
-								// with a single integer.
-								if *n2 != 1 {
-									compatible = false;
-									break;
-								}
-							}
-							None => {
-								// Record this unification.
-								typevars.insert(tv, 1);
-							}
-						}
-						casts.push(Some(Type::Tuple(1)));
-						num_casts += 1;
-					}
+                    (Type::Int, Type::TupleVar(tv)) => {
+                        match typevars.get(&tv) {
+                            Some(n2) => {
+                                // We already have a substitution for this typevar, and it must be 1 to unify
+                                // with a single integer.
+                                if *n2 != 1 {
+                                    compatible = false;
+                                    break;
+                                }
+                            }
+                            None => {
+                                // Record this unification.
+                                typevars.insert(tv, 1);
+                            }
+                        }
+                        casts.push(Some(Type::Tuple(1)));
+                        num_casts += 1;
+                    }
                     (Type::Tuple(n), Type::TupleVar(tv)) => {
                         match typevars.get(&tv) {
                             Some(n2) => {
@@ -407,6 +407,54 @@ impl SemanticAnalyzer {
                     ))
                 }
             }
+            Expression::TupleConst { tag, values, .. } => {
+                // Check that the number of values matches the tag.
+                if values.len() != tag.len() {
+                    return Err(TypeError::with_pos(
+                        format!(
+                            "expected {} values for {:?}, got {}",
+                            tag.len(),
+                            tag,
+                            values.len()
+                        ),
+                        0,
+                        0,
+                    ));
+                }
+
+                for i in 0..values.len() {
+                    let value = &mut values[i];
+                    self.analyze_expr(value)?;
+
+                    match value.ty() {
+                        Type::Int => {
+                            // Add cast node.
+                            *value = Expression::cast_with_ty_(
+                                TupleTag::Nil,
+                                value.clone(),
+                                Type::Tuple(1),
+                            )
+                        }
+                        Type::Tuple(1) => {}
+                        Type::Tuple(n) => {
+                            return Err(TypeError::with_pos(
+                                format!("expected scalar in tuple literal, got a {}-tuple", n),
+                                0,
+                                0,
+                            ));
+                        }
+                        _ => {
+                            return Err(TypeError::with_pos(
+                                format!("unexpected type {:?}", value.ty()),
+                                0,
+                                0,
+                            ));
+                        }
+                    }
+                }
+
+                Ok(())
+            }
             _ => Err(TypeError::with_pos(
                 format!("sema unimplemented expr {:?}", expr),
                 0,
@@ -532,6 +580,79 @@ mod tests {
             assert_eq!(*ty, Type::Tuple(2));
         } else {
             panic!("expected function call");
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn polymorphic_incompatible() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("xy:[1, 2] + rgba:[1, 2, 3, 4]")?[0];
+        if let E::FunctionCall { name, args, ty } = expr {
+            assert_eq!(name, "abs");
+            assert_eq!(args.len(), 1);
+            assert_eq!(args[0].ty(), Type::Tuple(2));
+            assert_eq!(*ty, Type::Tuple(2));
+        } else {
+            panic!("expected function call");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn tuple_const() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("xy:[1.0, 2.0]")?[0];
+        if let E::TupleConst { tag, values, ty } = expr {
+            assert_eq!(*tag, TupleTag::Xy);
+            assert_eq!(values.len(), 2);
+            assert_eq!(*ty, Type::Tuple(2));
+        } else {
+            panic!("expected tuple const");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn tuple_const_promotion() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("xy:[1, 2.0]")?[0];
+
+        let expected_ast = E::TupleConst {
+            tag: TupleTag::Xy,
+            values: vec![
+                E::cast_with_ty_(TupleTag::Nil, E::int_(1), Type::Tuple(1)),
+                E::float_(2.0),
+            ],
+            ty: Type::Tuple(2),
+        };
+        assert_eq!(*expr, expected_ast);
+        Ok(())
+    }
+
+    #[test]
+    fn tuple_const_wrong_len() -> Result<(), Box<dyn Error>> {
+        if let Err(e) = analyze_expr("rgba:[1, 2, 3]") {
+            if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
+                assert_eq!(tye.message, "expected 4 values for Rgba, got 3");
+                Ok(())
+            } else {
+                panic!("expected type error");
+            }
+        } else {
+            panic!("expected the parser to fail");
+        }
+    }
+
+    #[test]
+    fn tuple_const_wrong_inner() -> Result<(), Box<dyn Error>> {
+        if let Err(e) = analyze_expr("xy:[1.0, xy:[2.0, 3.0]]") {
+            if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
+                assert_eq!(
+                    tye.message,
+                    "expected scalar in tuple literal, got a 2-tuple"
+                );
+            } else {
+                panic!("expected type error");
+            }
         }
         Ok(())
     }

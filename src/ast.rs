@@ -21,6 +21,26 @@ pub enum TupleTag {
     Hyper, // Hypercomplex number
 }
 
+impl TupleTag {
+    pub fn len(&self) -> usize {
+        match self {
+            TupleTag::Nil => 1,
+            TupleTag::Rgba => 4,
+            TupleTag::Hsva => 4,
+            TupleTag::Ri => 2,
+            TupleTag::Xy => 2,
+            TupleTag::Ra => 2,
+            TupleTag::V2 => 2,
+            TupleTag::V3 => 3,
+            TupleTag::M2x2 => 4,
+            TupleTag::M3x3 => 9,
+            TupleTag::Quat => 4,
+            TupleTag::Cquat => 4,
+            TupleTag::Hyper => 8,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct OpInfo {
     precedence: u8,
@@ -243,6 +263,14 @@ impl Expression {
             tag,
             expr: Box::new(expr),
             ty: Type::Unknown,
+        }
+    }
+
+    pub fn cast_with_ty_(tag: TupleTag, expr: Self, ty: Type) -> Self {
+        Self::Cast {
+            tag,
+            expr: Box::new(expr),
+            ty,
         }
     }
 }
