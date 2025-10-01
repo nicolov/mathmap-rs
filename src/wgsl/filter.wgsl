@@ -45,7 +45,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let cy: f32 = (f32(params.size.y) - 1.0) / 2.0;
 
 	let x: f32 = (f32(gid.x) - cx) / cx;
-	let y: f32 = (f32(gid.y) - cy) / cy;
+	let y2: f32 = (f32(gid.y) - cy) / cy;
+	// Flip Y so +y is up (cartesian).
+	let y = -y2;
 
 	let ra = to_ra(x, y);
 	let r = ra[0];
