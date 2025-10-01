@@ -27,6 +27,17 @@ impl Type {
             _ => todo!(),
         }
     }
+
+    pub fn is_scalar(&self) -> bool {
+        match self {
+            Type::Int => true,
+            Type::Tuple(1) => true,
+            Type::Tuple(n) if *n > 1 => false,
+            _ => {
+                todo!();
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -188,104 +199,131 @@ impl FunctionTable {
         cand: &'a FuncDef,
         arg_tys: &[Type],
     ) -> Option<(OverloadResolutionResult<'a>, usize)> {
+        // Remember:
+        // * parameter: placeholder in the function definition,
+        // * argument: actual value passed to the function.
         if cand.signature.params.len() != arg_tys.len() {
             return None;
         }
 
-        let mut casts = Vec::new();
-        let mut cost = 0;
-        let mut compatible = true;
-
-        // Mapping from typevar chars to the actual length of the tuple.
-        let mut typevars = HashMap::new();
-
-        // Match the actual argument type with the corresponding parameter in the function signature.
-        for (current_ty, param_ty) in arg_tys.iter().zip(cand.signature.params.iter()) {
-            // todo: simplify by handling type promotion (first) and broadcasting (second) in two separate steps.
-            match (current_ty, &param_ty.ty) {
-                (Type::Int, Type::Int) => {
-                    casts.push(None);
-                }
-                (Type::Tuple(1), Type::Tuple(1)) => {
-                    // todo: make this generic with Tuple(N).
-                    casts.push(None);
-                }
-                (Type::Int, Type::Tuple(1)) => {
-                    // todo: also promote an int to a Tuple(N) when the signature is
-                    // polymorphic.
-                    casts.push(Some(Type::Tuple(1)));
-                    cost += 1;
-                }
-                (Type::Int, Type::TupleVar(tv)) => {
-                    match typevars.get(&tv) {
-                        Some(n2) => {
-                            // We already have a substitution for this typevar, and it must be 1 to unify
-                            // with a single integer.
-                            if *n2 != 1 {
-                                compatible = false;
-                                break;
-                            }
+        // Constrain typevars according to (non-scalar) arguments. Leave scalars alone for now.
+        // eg. this is a mapping 'N' -> 3, etc..
+        let mut typevar_constraints = HashMap::new();
+        for (param, arg) in cand.signature.params.iter().zip(arg_tys.iter()) {
+            if let Type::TupleVar(tv) = param.ty {
+                // Ignore scalars for now.
+                if let Type::Tuple(k) = arg
+                    && *k > 1
+                {
+                    // If there was a previous binding for this typevar, check that it's consistent.
+                    // Otherwise, create a new one.
+                    if let Some(prev) = typevar_constraints.get(&tv) {
+                        if *prev != *k {
+                            return None;
                         }
-                        None => {
-                            // Record this unification.
-                            typevars.insert(tv, 1);
-                        }
+                    } else {
+                        typevar_constraints.insert(tv, *k);
                     }
-                    casts.push(Some(Type::Tuple(1)));
-                    cost += 1;
-                }
-                (Type::Tuple(n), Type::TupleVar(tv)) => {
-                    match typevars.get(&tv) {
-                        Some(n2) => {
-                            // We already have a substitution for this typevar, and
-                            // it must match the concrete type, otherwise we skip this
-                            // overload candidate.
-                            if n == n2 {
-                                casts.push(None);
-                            } else {
-                                compatible = false;
-                                break;
-                            }
-                        }
-                        None => {
-                            // Record this unification.
-                            typevars.insert(tv, *n);
-                        }
-                    }
-                }
-                _ => {
-                    compatible = false;
-                    break;
                 }
             }
         }
 
-        if compatible {
-            let ret_ty = match &cand.signature.ret {
-                Type::TupleVar(tv) => match typevars.get(&tv) {
-                    Some(n) => Type::Tuple(*n),
-                    None => {
-                        // This should never happen if the signatures are well formed, but don't really check them yet..
-                        panic!("unknown typevar {}", &tv.clone());
-                    }
-                },
-                x => x.clone(),
+        // Constraint any unbound typevars to 1 to allow broadcasting later.
+        for p in cand.signature.params.iter() {
+            if let Type::TupleVar(tv) = p.ty {
+                if !typevar_constraints.contains_key(&tv) {
+                    typevar_constraints.insert(tv, 1);
+                }
+            }
+        }
+
+        let apply_typevars = |ty: &Type| match ty {
+            Type::TupleVar(tv) => match typevar_constraints.get(&tv) {
+                Some(n) => Type::Tuple(*n),
+                None => {
+                    panic!("unresolved typevar {}", &tv.clone());
+                }
+            },
+            x => x.clone(),
+        };
+
+        // Apply typevar constraints to params.
+        let params2 = cand
+            .signature
+            .params
+            .iter()
+            .map(|p| apply_typevars(&p.ty))
+            .collect::<Vec<_>>();
+
+        let mut total_cost = 0usize;
+        let mut casts = Vec::new();
+        for (param, arg) in params2.iter().zip(arg_tys.iter()) {
+            // First, try if args match params exactly. This has zero cost.
+            let perfect_match = match (param, arg) {
+                (Type::Int, Type::Int) => true,
+                (Type::Tuple(n), Type::Tuple(m)) => n == m,
+                _ => false,
             };
 
-            Some((
-                OverloadResolutionResult {
-                    def: cand,
-                    casts,
-                    ret_ty,
-                },
-                cost,
-            ))
-        } else {
-            None
+            if perfect_match {
+                casts.push(None);
+                continue;
+            }
+
+            // Then try with type casts (with cost 1).
+            let cast = match (param, arg) {
+                (Type::Tuple(1), Type::Int) => Some(Type::Tuple(1)),
+                _ => None,
+            };
+
+            if let Some(cast) = cast {
+                casts.push(Some(cast));
+                total_cost += 1;
+                continue;
+            }
+
+            // Finally, try broadcasting (with cost 2).
+            let bcast = match (param, arg) {
+                // param is a (resolved) tuple and arg is a scalar, so we just promote arg to the param.
+                (Type::Tuple(n), a) if a.is_scalar() && *n > 1 => Some(Type::Tuple(*n)),
+                _ => None,
+            };
+
+            if let Some(bcast) = bcast {
+                total_cost += 2;
+
+                // Since all tuples are float, any int -> tuple broadcast will also need a type cast.
+                if matches!(arg, Type::Int) {
+                    casts.push(Some(Type::Tuple(1)));
+                    total_cost += 1;
+                } else {
+                    casts.push(None);
+                }
+
+                continue;
+            }
+
+            // If we get here, the candidate is not compatible.
+            return None;
         }
+
+        let ret_ty = apply_typevars(&cand.signature.ret);
+
+        Some((
+            OverloadResolutionResult {
+                def: cand,
+                casts,
+                ret_ty,
+            },
+            total_cost,
+        ))
     }
 
-    fn lookup(&self, name: &str, arg_tys: &[Type]) -> Result<OverloadResolutionResult<'_>, TypeError> {
+    fn lookup(
+        &self,
+        name: &str,
+        arg_tys: &[Type],
+    ) -> Result<OverloadResolutionResult<'_>, TypeError> {
         let candidates = self.functions.get(name).ok_or(TypeError::with_pos(
             format!("unimplemented function {:?}", name),
             0,
@@ -663,9 +701,35 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn broadcasting() -> Result<(), Box<dyn Error>> {
         let expr = &analyze_expr("xy:[1.0, 2.0] + 1.0")?[0];
+
+        let expected_ast = E::FunctionCall {
+            name: "__add".to_string(),
+            args: vec![
+                E::tuple_(TupleTag::Xy, vec![E::float_(1.0), E::float_(2.0)]),
+                E::float_(1.0),
+            ],
+            ty: Type::Tuple(2),
+        };
+        assert_eq!(*expr, expected_ast);
+
+        Ok(())
+    }
+
+    #[test]
+    fn broadcasting_with_cast() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("xy:[1.0, 2.0] + 1")?[0];
+
+        let expected_ast = E::FunctionCall {
+            name: "__add".to_string(),
+            args: vec![
+                E::tuple_(TupleTag::Xy, vec![E::float_(1.0), E::float_(2.0)]),
+                E::cast_with_ty_(TupleTag::Nil, E::int_(1), Type::Tuple(1)),
+            ],
+            ty: Type::Tuple(2),
+        };
+        assert_eq!(*expr, expected_ast);
 
         Ok(())
     }
