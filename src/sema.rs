@@ -114,14 +114,14 @@ impl FunctionTable {
                         params: vec![
                             FuncParam {
                                 name: "x".to_string(),
-                                ty: Type::Tuple(1),
+                                ty: Type::TupleVar('N'),
                             },
                             FuncParam {
                                 name: "y".to_string(),
-                                ty: Type::Tuple(1),
+                                ty: Type::TupleVar('N'),
                             },
                         ],
-                        ret: Type::Tuple(1),
+                        ret: Type::TupleVar('N'),
                     },
                 },
                 FuncDef {
@@ -206,7 +206,9 @@ impl FunctionTable {
             // Mapping from typevar chars to the actual length of the tuple.
             let mut typevars = HashMap::new();
 
+			// Match the actual argument type with the corresponding parameter in the function signature.
             for (current_ty, param_ty) in arg_tys.iter().zip(cand.signature.params.iter()) {
+				// todo: simplify by handling type promotion (first) and broadcasting (second) in two separate steps.
                 match (current_ty, &param_ty.ty) {
                     (Type::Int, Type::Int) => {
                         casts.push(None);
@@ -221,6 +223,24 @@ impl FunctionTable {
                         casts.push(Some(Type::Tuple(1)));
                         num_casts += 1;
                     }
+					(Type::Int, Type::TupleVar(tv)) => {
+						match typevars.get(&tv) {
+							Some(n2) => {
+								// We already have a substitution for this typevar, and it must be 1 to unify
+								// with a single integer.
+								if *n2 != 1 {
+									compatible = false;
+									break;
+								}
+							}
+							None => {
+								// Record this unification.
+								typevars.insert(tv, 1);
+							}
+						}
+						casts.push(Some(Type::Tuple(1)));
+						num_casts += 1;
+					}
                     (Type::Tuple(n), Type::TupleVar(tv)) => {
                         match typevars.get(&tv) {
                             Some(n2) => {
@@ -498,6 +518,31 @@ mod tests {
         } else {
             panic!("expected function call");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn polymorphic_binary() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("xy + xy")?[0];
+        if let E::FunctionCall { name, args, ty } = expr {
+            assert_eq!(name, "__add");
+            assert_eq!(args.len(), 2);
+            assert_eq!(args[0].ty(), Type::Tuple(2));
+            assert_eq!(args[1].ty(), Type::Tuple(2));
+            assert_eq!(*ty, Type::Tuple(2));
+        } else {
+            panic!("expected function call");
+        }
+        Ok(())
+    }
+
+    // todo: test xy + 1.0 (works), vec3 + vec2 (should crash)
+
+    #[test]
+    #[ignore]
+    fn broadcasting() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("abs(xy) + 1.0")?[0];
+
         Ok(())
     }
 }

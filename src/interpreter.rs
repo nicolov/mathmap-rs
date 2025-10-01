@@ -70,7 +70,8 @@ where
     IntOp: Fn(i64, i64) -> i64,
 {
     // Handle broadcasting. Vector types are always float, so we only need to promote
-    // the scalar side.
+    // the scalar side. Promote/cast first, broadcast later, to avoid broadcasting the
+    // wrong type.
     match (lhs.len(), rhs.len()) {
         (1, 1) => {
             if always_as_float || needs_float(lhs, rhs) {
