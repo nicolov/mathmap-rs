@@ -116,43 +116,50 @@ impl FunctionTable {
             }],
         );
 
-        fns.insert(
-            "__add".to_string(),
-            vec![
-                FuncDef {
-                    signature: FuncSignature {
-                        name: "__add".to_string(),
-                        params: vec![
-                            FuncParam {
-                                name: "x".to_string(),
-                                ty: Type::TupleVar('N'),
-                            },
-                            FuncParam {
-                                name: "y".to_string(),
-                                ty: Type::TupleVar('N'),
-                            },
-                        ],
-                        ret: Type::TupleVar('N'),
+        // todo: find a better abstraction to define function signatures.
+        let mut def_int_float_binary = |name: &str| {
+            fns.insert(
+                name.to_string(),
+                vec![
+                    FuncDef {
+                        signature: FuncSignature {
+                            name: name.to_string(),
+                            params: vec![
+                                FuncParam {
+                                    name: "x".to_string(),
+                                    ty: Type::TupleVar('N'),
+                                },
+                                FuncParam {
+                                    name: "y".to_string(),
+                                    ty: Type::TupleVar('N'),
+                                },
+                            ],
+                            ret: Type::TupleVar('N'),
+                        },
                     },
-                },
-                FuncDef {
-                    signature: FuncSignature {
-                        name: "__add".to_string(),
-                        params: vec![
-                            FuncParam {
-                                name: "x".to_string(),
-                                ty: Type::Int,
-                            },
-                            FuncParam {
-                                name: "y".to_string(),
-                                ty: Type::Int,
-                            },
-                        ],
-                        ret: Type::Int,
+                    FuncDef {
+                        signature: FuncSignature {
+                            name: name.to_string(),
+                            params: vec![
+                                FuncParam {
+                                    name: "x".to_string(),
+                                    ty: Type::Int,
+                                },
+                                FuncParam {
+                                    name: "y".to_string(),
+                                    ty: Type::Int,
+                                },
+                            ],
+                            ret: Type::Int,
+                        },
                     },
-                },
-            ],
-        );
+                ],
+            );
+        };
+
+        def_int_float_binary("__add");
+        def_int_float_binary("__sub");
+        def_int_float_binary("__mul");
 
         fns.insert(
             "__div".to_string(),
@@ -177,19 +184,24 @@ impl FunctionTable {
             ],
         );
 
-        fns.insert(
-            "abs".to_string(),
-            vec![FuncDef {
-                signature: FuncSignature {
-                    name: "abs".to_string(),
-                    params: vec![FuncParam {
-                        name: "x".to_string(),
-                        ty: Type::TupleVar('N'),
-                    }],
-                    ret: Type::TupleVar('N'),
-                },
-            }],
-        );
+        let mut def_float_unary = |name: &str| {
+            fns.insert(
+                name.to_string(),
+                vec![FuncDef {
+                    signature: FuncSignature {
+                        name: name.to_string(),
+                        params: vec![FuncParam {
+                            name: "x".to_string(),
+                            ty: Type::TupleVar('N'),
+                        }],
+                        ret: Type::TupleVar('N'),
+                    },
+                }],
+            );
+        };
+
+		def_float_unary("abs");
+		def_float_unary("sin");
 
         Self { functions: fns }
     }
@@ -373,6 +385,13 @@ impl SymbolTable {
         vars.insert("x".to_string(), Type::Tuple(1));
         vars.insert("y".to_string(), Type::Tuple(1));
         vars.insert("xy".to_string(), Type::Tuple(2));
+
+        vars.insert("r".to_string(), Type::Tuple(1));
+        vars.insert("a".to_string(), Type::Tuple(1));
+
+        vars.insert("t".to_string(), Type::Tuple(1));
+
+        vars.insert("pi".to_string(), Type::Tuple(1));
 
         Self { vars: vars }
     }
