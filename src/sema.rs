@@ -183,7 +183,109 @@ impl FunctionTable {
         Self { functions: fns }
     }
 
-    fn lookup(&self, name: &str, arg_tys: &[Type]) -> Result<OverloadResolutionResult, TypeError> {
+    fn check_candidate<'a>(
+        &self,
+        cand: &'a FuncDef,
+        arg_tys: &[Type],
+    ) -> Option<(OverloadResolutionResult<'a>, usize)> {
+        if cand.signature.params.len() != arg_tys.len() {
+            return None;
+        }
+
+        let mut casts = Vec::new();
+        let mut cost = 0;
+        let mut compatible = true;
+
+        // Mapping from typevar chars to the actual length of the tuple.
+        let mut typevars = HashMap::new();
+
+        // Match the actual argument type with the corresponding parameter in the function signature.
+        for (current_ty, param_ty) in arg_tys.iter().zip(cand.signature.params.iter()) {
+            // todo: simplify by handling type promotion (first) and broadcasting (second) in two separate steps.
+            match (current_ty, &param_ty.ty) {
+                (Type::Int, Type::Int) => {
+                    casts.push(None);
+                }
+                (Type::Tuple(1), Type::Tuple(1)) => {
+                    // todo: make this generic with Tuple(N).
+                    casts.push(None);
+                }
+                (Type::Int, Type::Tuple(1)) => {
+                    // todo: also promote an int to a Tuple(N) when the signature is
+                    // polymorphic.
+                    casts.push(Some(Type::Tuple(1)));
+                    cost += 1;
+                }
+                (Type::Int, Type::TupleVar(tv)) => {
+                    match typevars.get(&tv) {
+                        Some(n2) => {
+                            // We already have a substitution for this typevar, and it must be 1 to unify
+                            // with a single integer.
+                            if *n2 != 1 {
+                                compatible = false;
+                                break;
+                            }
+                        }
+                        None => {
+                            // Record this unification.
+                            typevars.insert(tv, 1);
+                        }
+                    }
+                    casts.push(Some(Type::Tuple(1)));
+                    cost += 1;
+                }
+                (Type::Tuple(n), Type::TupleVar(tv)) => {
+                    match typevars.get(&tv) {
+                        Some(n2) => {
+                            // We already have a substitution for this typevar, and
+                            // it must match the concrete type, otherwise we skip this
+                            // overload candidate.
+                            if n == n2 {
+                                casts.push(None);
+                            } else {
+                                compatible = false;
+                                break;
+                            }
+                        }
+                        None => {
+                            // Record this unification.
+                            typevars.insert(tv, *n);
+                        }
+                    }
+                }
+                _ => {
+                    compatible = false;
+                    break;
+                }
+            }
+        }
+
+        if compatible {
+            let ret_ty = match &cand.signature.ret {
+                Type::TupleVar(tv) => match typevars.get(&tv) {
+                    Some(n) => Type::Tuple(*n),
+                    None => {
+                        // This should never happen if the signatures are well formed, but don't really check them yet..
+                        panic!("unknown typevar {}", &tv.clone());
+                    }
+                },
+                x => x.clone(),
+            };
+
+            Some((
+                OverloadResolutionResult {
+                    def: cand,
+                    casts,
+                    ret_ty,
+                },
+                cost,
+            ))
+        } else {
+            None
+        }
+    }
+
+    fn lookup(&self, name: &str, arg_tys: &[Type]) -> Result<OverloadResolutionResult<'_>, TypeError> {
         let candidates = self.functions.get(name).ok_or(TypeError::with_pos(
             format!("unimplemented function {:?}", name),
             0,
@@ -192,105 +294,9 @@ impl FunctionTable {
 
         let mut matches: Vec<(OverloadResolutionResult, usize)> = Vec::new();
 
-        // Go through all candidates and rank them by how many implicit casts
-        // they would need.
         for cand in candidates {
-            if cand.signature.params.len() != arg_tys.len() {
-                continue;
-            }
-
-            let mut casts = Vec::new();
-            let mut num_casts = 0;
-            let mut compatible = true;
-
-            // Mapping from typevar chars to the actual length of the tuple.
-            let mut typevars = HashMap::new();
-
-            // Match the actual argument type with the corresponding parameter in the function signature.
-            for (current_ty, param_ty) in arg_tys.iter().zip(cand.signature.params.iter()) {
-                // todo: simplify by handling type promotion (first) and broadcasting (second) in two separate steps.
-                match (current_ty, &param_ty.ty) {
-                    (Type::Int, Type::Int) => {
-                        casts.push(None);
-                    }
-                    (Type::Tuple(1), Type::Tuple(1)) => {
-                        // todo: make this generic with Tuple(N).
-                        casts.push(None);
-                    }
-                    (Type::Int, Type::Tuple(1)) => {
-                        // todo: also promote an int to a Tuple(N) when the signature is
-                        // polymorphic.
-                        casts.push(Some(Type::Tuple(1)));
-                        num_casts += 1;
-                    }
-                    (Type::Int, Type::TupleVar(tv)) => {
-                        match typevars.get(&tv) {
-                            Some(n2) => {
-                                // We already have a substitution for this typevar, and it must be 1 to unify
-                                // with a single integer.
-                                if *n2 != 1 {
-                                    compatible = false;
-                                    break;
-                                }
-                            }
-                            None => {
-                                // Record this unification.
-                                typevars.insert(tv, 1);
-                            }
-                        }
-                        casts.push(Some(Type::Tuple(1)));
-                        num_casts += 1;
-                    }
-                    (Type::Tuple(n), Type::TupleVar(tv)) => {
-                        match typevars.get(&tv) {
-                            Some(n2) => {
-                                // We already have a substitution for this typevar, and
-                                // it must match the concrete type, otherwise we skip this
-                                // overload candidate.
-                                if n == n2 {
-                                    casts.push(None);
-                                } else {
-                                    compatible = false;
-                                    break;
-                                }
-                            }
-                            None => {
-                                // Record this unification.
-                                typevars.insert(tv, *n);
-                            }
-                        }
-                    }
-                    _ => {
-                        compatible = false;
-                        break;
-                    }
-                }
-            }
-
-            if compatible {
-                let ret_ty = match &cand.signature.ret {
-                    Type::TupleVar(tv) => match typevars.get(&tv) {
-                        Some(n) => Type::Tuple(*n),
-                        None => {
-                            // This should never happen if the signatures are well formed, but don't really check them yet..
-                            return Err(TypeError::with_pos(
-                                format!("unknown typevar {}", tv),
-                                0,
-                                0,
-                            ));
-                        }
-                    },
-                    x => x.clone(),
-                };
-
-                matches.push((
-                    OverloadResolutionResult {
-                        def: cand,
-                        casts,
-                        ret_ty,
-                    },
-                    num_casts,
-                ));
+            if let Some((res, cost)) = self.check_candidate(cand, arg_tys) {
+                matches.push((res, cost));
             }
         }
 
@@ -585,21 +591,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn polymorphic_incompatible() -> Result<(), Box<dyn Error>> {
-        let expr = &analyze_expr("xy:[1, 2] + rgba:[1, 2, 3, 4]")?[0];
-        if let E::FunctionCall { name, args, ty } = expr {
-            assert_eq!(name, "abs");
-            assert_eq!(args.len(), 1);
-            assert_eq!(args[0].ty(), Type::Tuple(2));
-            assert_eq!(*ty, Type::Tuple(2));
-        } else {
-            panic!("expected function call");
-        }
-        Ok(())
-    }
-
-    #[test]
     fn tuple_const() -> Result<(), Box<dyn Error>> {
         let expr = &analyze_expr("xy:[1.0, 2.0]")?[0];
         if let E::TupleConst { tag, values, ty } = expr {
@@ -657,12 +648,24 @@ mod tests {
         Ok(())
     }
 
-    // todo: test xy + 1.0 (works), vec3 + vec2 (should crash)
+    #[test]
+    fn broadcasting_incompatible() -> Result<(), Box<dyn Error>> {
+        if let Err(e) = analyze_expr("xy:[1, 2] + rgba:[1, 2, 3, 4]") {
+            if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
+                assert_eq!(tye.message, "no matching overload for function \"__add\"");
+                Ok(())
+            } else {
+                panic!("expected type error");
+            }
+        } else {
+            panic!("expected the parser to fail");
+        }
+    }
 
     #[test]
     #[ignore]
     fn broadcasting() -> Result<(), Box<dyn Error>> {
-        let expr = &analyze_expr("abs(xy) + 1.0")?[0];
+        let expr = &analyze_expr("xy:[1.0, 2.0] + 1.0")?[0];
 
         Ok(())
     }
