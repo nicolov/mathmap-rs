@@ -59,9 +59,20 @@ impl WgslCompiler {
         }
     }
 
+    fn var_name(&self, idx: usize) -> String {
+        format!("{}_{}", LOCAL_VAR_PREFIX, idx)
+    }
+
     fn var_decl(&mut self, ty: &sema::Type) -> (String, usize) {
         let idx = self.local_var_idx;
         let s = format!("var {}_{} : {} = ", LOCAL_VAR_PREFIX, idx, ty.as_wgsl());
+        self.local_var_idx += 1;
+        (s, idx)
+    }
+
+    fn var_decl2(&mut self, ty: &sema::Type) -> (String, usize) {
+        let idx = self.local_var_idx;
+        let s = format!("var {}_{} : {}", LOCAL_VAR_PREFIX, idx, ty.as_wgsl());
         self.local_var_idx += 1;
         (s, idx)
     }
@@ -141,8 +152,45 @@ impl WgslCompiler {
                 self.writer.line(&s);
                 Ok(idx)
             }
+            ast::Expression::If {
+                condition,
+                then,
+                else_,
+                ty,
+            } => {
+                let (mut s, eval_idx) = self.var_decl2(&ty);
+                s.push_str(";");
+                self.writer.line(&s);
+
+                let cond_idx = self.compile_expr(condition)?;
+
+                let branch = format!("if ({} != 0) {{", self.var_name(cond_idx));
+                self.writer.line(&branch);
+                self.writer.indent();
+                let then_idx = self.compile_expr_block(then)?;
+
+                let assign_s =
+                    format!("{} = {};", self.var_name(eval_idx), self.var_name(then_idx));
+                self.writer.line(&assign_s);
+                self.writer.dedent();
+
+                if !else_.is_empty() {
+                    self.writer.line("} else {");
+                    self.writer.indent();
+                    let else_idx = self.compile_expr_block(else_)?;
+                    let assign_s =
+                        format!("{} = {};", self.var_name(eval_idx), self.var_name(else_idx));
+                    self.writer.line(&assign_s);
+                    self.writer.dedent();
+                    self.writer.line("}");
+                } else {
+                    self.writer.line("}");
+                }
+
+                Ok(eval_idx)
+            }
             _ => Err(TypeError::with_pos(
-                format!("unimplemented expr {:?}", expr),
+                format!("unimplemented wgsl expr {:?}", expr),
                 0,
                 0,
             )),

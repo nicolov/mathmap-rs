@@ -160,6 +160,7 @@ impl FunctionTable {
         def_int_float_binary("__add");
         def_int_float_binary("__sub");
         def_int_float_binary("__mul");
+        def_int_float_binary("__mod");
 
         let mut def_comparison = |name: &str| {
             fns.insert(
@@ -552,7 +553,7 @@ impl SemanticAnalyzer {
                 ty,
             } => {
                 self.analyze_expr(condition)?;
-                if !matches!(condition.ty(), Type::Int) {
+                if !matches!(condition.ty(), Type::Int | Type::Tuple(1)) {
                     return Err(TypeError::with_pos(
                         format!("if condition must be int, found {:?}", condition.ty()),
                         0,
