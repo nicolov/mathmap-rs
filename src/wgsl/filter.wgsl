@@ -26,6 +26,10 @@ fn FN___mod(x: f32, y: f32) -> f32 {
 	return x % y;
 }
 
+fn FN___neg(x: f32) -> f32 {
+	return -x;
+}
+
 fn FN___less(x: f32, y: f32) -> i32 {
 	if (x < y) {
 		return 1;

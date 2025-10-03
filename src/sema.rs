@@ -190,6 +190,24 @@ impl FunctionTable {
         def_comparison("__less");
         def_comparison("__lessequal");
 
+        let mut def_unary = |name: &str| {
+            fns.insert(
+                name.to_string(),
+                vec![FuncDef {
+                    signature: FuncSignature {
+                        name: name.to_string(),
+                        params: vec![FuncParam {
+                            name: "x".to_string(),
+                            ty: Type::TupleVar('N'),
+                        }],
+                        ret: Type::TupleVar('N'),
+                    },
+                }],
+            );
+        };
+
+        def_unary("__neg");
+
         fns.insert(
             "__div".to_string(),
             vec![
