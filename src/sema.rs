@@ -200,8 +200,8 @@ impl FunctionTable {
             );
         };
 
-		def_float_unary("abs");
-		def_float_unary("sin");
+        def_float_unary("abs");
+        def_float_unary("sin");
 
         Self { functions: fns }
     }
@@ -518,6 +518,44 @@ impl SemanticAnalyzer {
 
                 Ok(())
             }
+            Expression::If {
+                condition,
+                then,
+                else_,
+                ty,
+            } => {
+                self.analyze_expr(condition)?;
+                if !matches!(condition.ty(), Type::Int) {
+                    return Err(TypeError::with_pos(
+                        format!("if condition must be int, found {:?}", condition.ty()),
+                        0,
+                        0,
+                    ));
+                }
+
+                self.analyze_expr_block(then)?;
+                let then_ty = then.last().unwrap().ty();
+
+                if !else_.is_empty() {
+                    self.analyze_expr_block(else_)?;
+                    let else_ty = else_.last().unwrap().ty();
+
+                    if then_ty != else_ty {
+                        return Err(TypeError::with_pos(
+                            format!(
+                                "then and else branches must have the same type, got {:?} and {:?}",
+                                then_ty, else_ty
+                            ),
+                            0,
+                            0,
+                        ));
+                    }
+                }
+
+                *ty = then_ty;
+
+                Ok(())
+            }
             _ => Err(TypeError::with_pos(
                 format!("sema unimplemented expr {:?}", expr),
                 0,
@@ -751,6 +789,44 @@ mod tests {
         assert_eq!(*expr, expected_ast);
 
         Ok(())
+    }
+
+    #[test]
+    fn if_ok() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("if 1 then 2 else 3 end")?[0];
+        assert_eq!(expr.ty(), Type::Int);
+        Ok(())
+    }
+
+    #[test]
+    fn if_different_branch_types() -> Result<(), Box<dyn Error>> {
+        if let Err(e) = analyze_expr("if 1 then 2 else 3.0 end") {
+            if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
+                assert_eq!(
+                    tye.message,
+                    "then and else branches must have the same type, got Int and Tuple(1)"
+                );
+                Ok(())
+            } else {
+                panic!("expected type error");
+            }
+        } else {
+            panic!("expected the parser to fail");
+        }
+    }
+
+    #[test]
+    fn if_wrong_branch_type() -> Result<(), Box<dyn Error>> {
+        if let Err(e) = analyze_expr("if xy then 2 else 3 end") {
+            if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
+                assert_eq!(tye.message, "if condition must be int, found Tuple(2)");
+                Ok(())
+            } else {
+                panic!("expected type error");
+            }
+        } else {
+            panic!("expected the parser to fail");
+        }
     }
 }
 
