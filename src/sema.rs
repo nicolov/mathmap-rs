@@ -161,6 +161,33 @@ impl FunctionTable {
         def_int_float_binary("__sub");
         def_int_float_binary("__mul");
 
+        let mut def_comparison = |name: &str| {
+            fns.insert(
+                name.to_string(),
+                vec![
+                    FuncDef {
+                        signature: FuncSignature {
+                            name: name.to_string(),
+                            params: vec![
+                                FuncParam {
+                                    name: "x".to_string(),
+                                    ty: Type::Tuple(1),
+                                },
+                                FuncParam {
+                                    name: "y".to_string(),
+                                    ty: Type::Tuple(1),
+                                },
+                            ],
+                            ret: Type::Int,
+                        },
+                    },
+                ],
+            );
+        };
+
+        def_comparison("__less");
+        def_comparison("__lessequal");
+
         fns.insert(
             "__div".to_string(),
             vec![
