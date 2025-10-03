@@ -161,6 +161,7 @@ impl FunctionTable {
         def_int_float_binary("__sub");
         def_int_float_binary("__mul");
         def_int_float_binary("__mod");
+        def_int_float_binary("__pow");
 
         let mut def_comparison = |name: &str| {
             fns.insert(

@@ -34,6 +34,18 @@ fn FN___less(x: f32, y: f32) -> i32 {
 	}
 }
 
+fn FN___lessequal(x: f32, y: f32) -> i32 {
+	if (x <= y) {
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
+fn FN___pow(x: f32, y: f32) -> f32 {
+	return pow(x, y);
+}
+
 fn FN_sin(x: f32) -> f32 {
 	return sin(x);
 }
