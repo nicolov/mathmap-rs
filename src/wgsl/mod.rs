@@ -151,6 +151,26 @@ impl WgslCompiler {
                 self.writer.line(&s);
                 Ok(idx)
             }
+            ast::Expression::TupleConst { values, ty, .. } => {
+                // Compile items and keep track of their variable idx.
+                let values_idxs: Vec<_> = values
+                    .into_iter()
+                    .map(|arg_expr| self.compile_expr(arg_expr))
+                    .collect::<Result<_, _>>()?;
+
+                let (mut s, idx) = self.var_decl(&ty);
+                s.push_str(&format!(
+                    "{}({});",
+                    ty.as_wgsl(),
+                    values_idxs
+                        .iter()
+                        .map(|x| self.var_name(*x))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                self.writer.line(&s);
+                Ok(idx)
+            }
             ast::Expression::Cast { tag, expr, ty } => {
                 let expr_idx = self.compile_expr(expr)?;
                 let (mut s, idx) = self.var_decl(&ty);
