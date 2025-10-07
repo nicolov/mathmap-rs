@@ -166,24 +166,22 @@ impl FunctionTable {
         let mut def_comparison = |name: &str| {
             fns.insert(
                 name.to_string(),
-                vec![
-                    FuncDef {
-                        signature: FuncSignature {
-                            name: name.to_string(),
-                            params: vec![
-                                FuncParam {
-                                    name: "x".to_string(),
-                                    ty: Type::Tuple(1),
-                                },
-                                FuncParam {
-                                    name: "y".to_string(),
-                                    ty: Type::Tuple(1),
-                                },
-                            ],
-                            ret: Type::Int,
-                        },
+                vec![FuncDef {
+                    signature: FuncSignature {
+                        name: name.to_string(),
+                        params: vec![
+                            FuncParam {
+                                name: "x".to_string(),
+                                ty: Type::Tuple(1),
+                            },
+                            FuncParam {
+                                name: "y".to_string(),
+                                ty: Type::Tuple(1),
+                            },
+                        ],
+                        ret: Type::Int,
                     },
-                ],
+                }],
             );
         };
 
@@ -249,6 +247,30 @@ impl FunctionTable {
 
         def_float_unary("abs");
         def_float_unary("sin");
+
+        let mut def_bool_binary = |name: &str| {
+            fns.insert(
+                name.to_string(),
+                vec![FuncDef {
+                    signature: FuncSignature {
+                        name: name.to_string(),
+                        params: vec![
+                            FuncParam {
+                                name: "x".to_string(),
+                                ty: Type::Int,
+                            },
+                            FuncParam {
+                                name: "y".to_string(),
+                                ty: Type::Int,
+                            },
+                        ],
+                        ret: Type::Int,
+                    },
+                }],
+            );
+        };
+
+        def_bool_binary("__or");
 
         Self { functions: fns }
     }
@@ -603,6 +625,35 @@ impl SemanticAnalyzer {
 
                 Ok(())
             }
+            Expression::Index {
+                expr: array,
+                index,
+                ty,
+            } => {
+                self.analyze_expr(array)?;
+                self.analyze_expr(index)?;
+
+                if !matches!(array.ty(), Type::Tuple(_)) {
+                    return Err(TypeError::with_pos(
+                        format!("index target must be a tuple, found {:?}", array.ty()),
+                        0,
+                        0,
+                    ));
+                }
+
+                if !matches!(index.ty(), Type::Int) {
+                    return Err(TypeError::with_pos(
+                        format!("index variable must be an int, found {:?}", index.ty()),
+                        0,
+                        0,
+                    ));
+                }
+
+                // Tuple items are always float.
+                *ty = Type::Tuple(1);
+                dbg!(&ty);
+                Ok(())
+            }
             _ => Err(TypeError::with_pos(
                 format!("sema unimplemented expr {:?}", expr),
                 0,
@@ -874,6 +925,41 @@ mod tests {
         } else {
             panic!("expected the parser to fail");
         }
+    }
+
+    #[test]
+    fn index_wrong_array() -> Result<(), Box<dyn Error>> {
+        if let Err(e) = analyze_expr("a = 1; a[1]") {
+            if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
+                assert_eq!(tye.message, "index target must be a tuple, found Int");
+                Ok(())
+            } else {
+                panic!("expected type error");
+            }
+        } else {
+            panic!("expected the parser to fail");
+        }
+    }
+
+    #[test]
+    fn index_wrong_index() -> Result<(), Box<dyn Error>> {
+        if let Err(e) = analyze_expr("a = xy:[1, 2]; a[1.0]") {
+            if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
+                assert_eq!(tye.message, "index variable must be an int, found Tuple(1)");
+                Ok(())
+            } else {
+                panic!("expected type error");
+            }
+        } else {
+            panic!("expected the parser to fail");
+        }
+    }
+
+    #[test]
+    fn index_ok() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("a = xy:[1, 2]; a[1]")?[1];
+        assert_eq!(expr.ty(), Type::Tuple(1));
+        Ok(())
     }
 }
 
