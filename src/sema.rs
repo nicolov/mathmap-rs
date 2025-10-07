@@ -679,6 +679,19 @@ impl SemanticAnalyzer {
                 *ty = expr.ty();
                 Ok(())
             }
+            Expression::While { condition, ty, .. } => {
+                self.analyze_expr(condition)?;
+                if !matches!(condition.ty(), Type::Int) {
+                    return Err(TypeError::with_pos(
+                        format!("while condition must be int, found {:?}", condition.ty()),
+                        0,
+                        0,
+                    ));
+                }
+                // A while loop always evaluates to 0 according to the docs.
+                *ty = Type::Int;
+                Ok(())
+            }
             _ => Err(TypeError::with_pos(
                 format!("sema unimplemented expr {:?}", expr),
                 0,
@@ -999,6 +1012,27 @@ mod tests {
         if let Err(e) = analyze_expr("a = xy:[1, 2]; b = rgba:a") {
             if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
                 assert_eq!(tye.message, "expected 4 values for Rgba, got 2");
+                Ok(())
+            } else {
+                panic!("expected type error");
+            }
+        } else {
+            panic!("expected the parser to fail");
+        }
+    }
+
+    #[test]
+    fn while_ok() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("i = 0; while i < 10 do i = i + 1; end")?;
+        assert_eq!(expr.last().unwrap().ty(), Type::Int);
+        Ok(())
+    }
+
+    #[test]
+    fn while_wrong_condition() -> Result<(), Box<dyn Error>> {
+        if let Err(e) = analyze_expr("i = 0; while 1.1 do i = i + 1; end") {
+            if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
+                assert_eq!(tye.message, "while condition must be int, found Tuple(1)");
                 Ok(())
             } else {
                 panic!("expected type error");
