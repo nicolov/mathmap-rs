@@ -31,12 +31,16 @@ impl Type {
     }
 
     pub fn is_scalar(&self) -> bool {
+        self.len() == 1
+    }
+
+    pub fn len(&self) -> usize {
         match self {
-            Type::Int => true,
-            Type::Tuple(1) => true,
-            Type::Tuple(n) if *n > 1 => false,
+            Type::Int => 1,
+            Type::Tuple(n) => *n,
+            Type::TupleVar(_) => todo!(),
             _ => {
-                todo!();
+                todo!("don't know how to get len of {:?}", self);
             }
         }
     }
@@ -656,6 +660,25 @@ impl SemanticAnalyzer {
                 dbg!(&ty);
                 Ok(())
             }
+            Expression::Cast { expr, ty, tag } => {
+                self.analyze_expr(expr)?;
+                // We don't have tags in the sema type system yet, so just check that the arity
+                // matches.
+                if expr.ty().len() != tag.len() {
+                    return Err(TypeError::with_pos(
+                        format!(
+                            "expected {} values for {:?}, got {}",
+                            tag.len(),
+                            tag,
+                            expr.ty().len()
+                        ),
+                        0,
+                        0,
+                    ));
+                }
+                *ty = expr.ty();
+                Ok(())
+            }
             _ => Err(TypeError::with_pos(
                 format!("sema unimplemented expr {:?}", expr),
                 0,
@@ -962,6 +985,27 @@ mod tests {
         let expr = &analyze_expr("a = xy:[1, 2]; a[1]")?[1];
         assert_eq!(expr.ty(), Type::Tuple(1));
         Ok(())
+    }
+
+    #[test]
+    fn cast_ok() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("a = xy:[1, 2]; b = ri:a")?[1];
+        assert_eq!(expr.ty(), Type::Tuple(2));
+        Ok(())
+    }
+
+    #[test]
+    fn cast_wrong_arity() -> Result<(), Box<dyn Error>> {
+        if let Err(e) = analyze_expr("a = xy:[1, 2]; b = rgba:a") {
+            if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
+                assert_eq!(tye.message, "expected 4 values for Rgba, got 2");
+                Ok(())
+            } else {
+                panic!("expected type error");
+            }
+        } else {
+            panic!("expected the parser to fail");
+        }
     }
 }
 
