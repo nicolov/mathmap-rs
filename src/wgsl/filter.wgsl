@@ -6,52 +6,40 @@ fn FN_grayColor(x: f32) -> vec4<f32> {
     return vec4<f32>(x, x, x, 1.0);
 }
 
-fn FN___add(x: f32, y: f32) -> f32 {
-	return x + y;
-}
-
-fn FN___div(x: f32, y: f32) -> f32 {
-	return x / y;
-}
-
-fn FN___mul(x: f32, y: f32) -> f32 {
-	return x * y;
-}
-
-fn FN___sub(x: f32, y: f32) -> f32 {
-	return x - y;
-}
-
 fn FN___mod(x: f32, y: f32) -> f32 {
-	return x % y;
+    return x % y;
 }
 
 fn FN___neg(x: f32) -> f32 {
-	return -x;
+    return -x;
+}
+
+fn FN___or(x: i32, y: i32) -> i32 {
+    if (x != 0) || (y != 0) {
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 fn FN___less(x: f32, y: f32) -> i32 {
-	if (x < y) {
-		return 1;
-	} else {
-		return 0;
-	}
+    if (x < y) {
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 fn FN___lessequal(x: f32, y: f32) -> i32 {
-	if (x <= y) {
-		return 1;
-	} else {
-		return 0;
-	}
+    if (x <= y) {
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 fn FN___pow(x: f32, y: f32) -> f32 {
-	return pow(x, y);
-}
-
-fn FN_sin(x: f32) -> f32 {
-	return sin(x);
+    return pow(x, y);
 }
 
 fn to_ra(x: f32, y: f32) -> vec2<f32> {
@@ -69,18 +57,20 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (gid.x >= params.size.x || gid.y >= params.size.y) { return; }
     let idx: u32 = gid.x + gid.y * params.size.x;
 
-	let cx: f32 = (f32(params.size.x) - 1.0) / 2.0;
-	let cy: f32 = (f32(params.size.y) - 1.0) / 2.0;
+    let cx: f32 = (f32(params.size.x) - 1.0) / 2.0;
+    let cy: f32 = (f32(params.size.y) - 1.0) / 2.0;
 
-	let x: f32 = (f32(gid.x) - cx) / cx;
-	let y2: f32 = (f32(gid.y) - cy) / cy;
-	// Flip Y so +y is up (cartesian).
-	let y = -y2;
+    let x: f32 = (f32(gid.x) - cx) / cx;
+    let y2: f32 = (f32(gid.y) - cy) / cy;
+    // Flip Y so +y is up (cartesian).
+    let y = -y2;
 
-	let ra = to_ra(x, y);
-	let r = ra[0];
-	let a = ra[1];
+    let xy = vec2<f32>(x, y);
 
-	let pi = 3.141592653589793;
+    let ra = to_ra(x, y);
+    let r = ra[0];
+    let a = ra[1];
 
-	let t = 0.0;
+    let pi = 3.141592653589793;
+
+    let t = 0.0;

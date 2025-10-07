@@ -23,8 +23,10 @@ impl Type {
         match self {
             Type::Int => "i32",
             Type::Tuple(1) => "f32",
+            Type::Tuple(2) => "vec2<f32>",
+            Type::Tuple(3) => "vec3<f32>",
             Type::Tuple(4) => "vec4<f32>",
-            _ => todo!(),
+            _ => todo!("type {:?} can not be converted to wgsl", self),
         }
     }
 

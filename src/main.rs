@@ -1,6 +1,7 @@
 struct CliArgs {
     srcpath: String,
     num_frames: i64,
+    wgsl: bool,
 }
 
 fn parse_args() -> Result<CliArgs, lexopt::Error> {
@@ -10,11 +11,15 @@ fn parse_args() -> Result<CliArgs, lexopt::Error> {
 
     let mut srcpath: Option<String> = None;
     let mut num_frames = 1;
+    let mut wgsl = false;
 
     while let Some(arg) = parser.next()? {
         match arg {
             Value(x) => {
                 srcpath = Some(x.string()?);
+            }
+            Long("wgsl") => {
+                wgsl = true;
             }
             Long("num-frames") => {
                 num_frames = parser.value()?.parse()?;
@@ -29,11 +34,20 @@ fn parse_args() -> Result<CliArgs, lexopt::Error> {
     Ok(CliArgs {
         srcpath: srcpath.ok_or("missing argument SRCPATH")?,
         num_frames,
+        wgsl,
     })
 }
 
 fn main() -> anyhow::Result<()> {
     let args = parse_args()?;
+
+    if args.wgsl {
+        // Compile to wgsl and return.
+        let src = std::fs::read_to_string(&args.srcpath)?;
+        let out = mathmap::compile_script_to_wgsl(&src)?;
+        println!("{}", out);
+        return Ok(());
+    }
 
     let im_w = 256;
     let im_h = 256;

@@ -59,6 +59,24 @@ impl WgslCompiler {
         }
     }
 
+    fn is_wgsl_operator(&self, name: &str) -> Option<char> {
+        match name {
+            "__add" => Some('+'),
+            "__sub" => Some('-'),
+            "__mul" => Some('*'),
+            "__div" => Some('/'),
+            _ => None,
+        }
+    }
+
+    fn is_wgsl_intrinsic(&self, name: &str) -> bool {
+        match name {
+            "sin" => true,
+            "abs" => true,
+            _ => false,
+        }
+    }
+
     fn var_name(&self, idx: usize) -> String {
         format!("{}_{}", LOCAL_VAR_PREFIX, idx)
     }
@@ -87,18 +105,35 @@ impl WgslCompiler {
                     .collect::<Result<_, _>>()?;
 
                 let (mut decl, idx) = self.var_decl(ty);
-                // Mangle the function name because wgsl doesn't allow leading double underscore..
-                decl.push_str("FN_");
-                decl.push_str(name);
-                decl.push_str("(");
-                decl.push_str(
-                    &args_idxs
-                        .iter()
-                        .map(|x| format!("{}_{}", LOCAL_VAR_PREFIX, x))
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-                decl.push_str(");");
+
+                // Special handling for wgsl operators so we don't have to duplicate them in the wgsl preamble
+                // (which would also require name mangling because wgsl doesn't have overloading).
+                if let Some(op) = self.is_wgsl_operator(name) {
+                    let op_call = format!(
+                        "{} {} {}",
+                        self.var_name(args_idxs[0]),
+                        op,
+                        self.var_name(args_idxs[1])
+                    );
+                    decl.push_str(&op_call);
+                } else {
+                    if !self.is_wgsl_intrinsic(name) {
+                        // Mangle the function name because wgsl doesn't allow leading double underscore..
+                        decl.push_str("FN_");
+                    }
+                    decl.push_str(name);
+                    decl.push_str("(");
+                    decl.push_str(
+                        &args_idxs
+                            .iter()
+                            .map(|x| format!("{}_{}", LOCAL_VAR_PREFIX, x))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    );
+                    decl.push_str(")");
+                }
+
+                decl.push_str(";");
                 self.writer.line(&decl);
                 Ok(idx)
             }
@@ -188,6 +223,25 @@ impl WgslCompiler {
                 }
 
                 Ok(eval_idx)
+            }
+            ast::Expression::Index {
+                expr: array,
+                index,
+                ty,
+            } => {
+                let array_idx = self.compile_expr(array)?;
+                let index_idx = self.compile_expr(index)?;
+
+                let (mut s, idx) = self.var_decl(&ty);
+
+                s.push_str(&format!(
+                    "{}[{}];",
+                    self.var_name(array_idx),
+                    self.var_name(index_idx)
+                ));
+                self.writer.line(&s);
+
+                Ok(idx)
             }
             _ => Err(TypeError::with_pos(
                 format!("unimplemented wgsl expr {:?}", expr),
