@@ -75,7 +75,7 @@ impl fmt::Display for TypeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "SyntaxError: {} on line {}, col {}",
+            "TypeError: {} on line {}, col {}",
             self.message, self.line, self.column
         )
     }

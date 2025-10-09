@@ -251,6 +251,9 @@ impl FunctionTable {
             );
         };
 
+        // todo: abs does vector magnitude for all tuple types right now but should
+        // only do that for quaternions and complex numbers, and do elementwise abs
+        // otherwise.
         def_float_unary("abs");
         def_float_unary("sin");
 
@@ -276,6 +279,7 @@ impl FunctionTable {
             );
         };
 
+        def_bool_binary("__and");
         def_bool_binary("__or");
 
         Self { functions: fns }
@@ -376,7 +380,7 @@ impl FunctionTable {
                 _ => None,
             };
 
-            if let Some(bcast) = bcast {
+            if let Some(_bcast) = bcast {
                 total_cost += 2;
 
                 // Since all tuples are float, any int -> tuple broadcast will also need a type cast.
@@ -427,7 +431,10 @@ impl FunctionTable {
 
         if matches.is_empty() {
             return Err(TypeError::with_pos(
-                format!("no matching overload for function {:?}", name),
+                format!(
+                    "no matching overload for function {:?} with args {:?}",
+                    name, arg_tys
+                ),
                 0,
                 0,
             ));
@@ -657,7 +664,6 @@ impl SemanticAnalyzer {
 
                 // Tuple items are always float.
                 *ty = Type::Tuple(1);
-                dbg!(&ty);
                 Ok(())
             }
             Expression::Cast { expr, ty, tag } => {
@@ -679,7 +685,11 @@ impl SemanticAnalyzer {
                 *ty = expr.ty();
                 Ok(())
             }
-            Expression::While { condition, ty, .. } => {
+            Expression::While {
+                condition,
+                body,
+                ty,
+            } => {
                 self.analyze_expr(condition)?;
                 if !matches!(condition.ty(), Type::Int) {
                     return Err(TypeError::with_pos(
@@ -688,15 +698,12 @@ impl SemanticAnalyzer {
                         0,
                     ));
                 }
+                self.analyze_expr_block(body)?;
+
                 // A while loop always evaluates to 0 according to the docs.
                 *ty = Type::Int;
                 Ok(())
             }
-            _ => Err(TypeError::with_pos(
-                format!("sema unimplemented expr {:?}", expr),
-                0,
-                0,
-            )),
         }
     }
 
@@ -784,6 +791,19 @@ mod tests {
         let expr = &analyze_expr("x = 1")?[0];
         if let E::Assignment { name, value, ty } = expr {
             assert_eq!(name, "x");
+            assert_eq!(value.ty(), Type::Int);
+            assert_eq!(*ty, Type::Int);
+        } else {
+            panic!("expected assignment");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn self_assignment() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("i = 0; i = i +1")?[1];
+        if let E::Assignment { name, value, ty } = expr {
+            assert_eq!(name, "i");
             assert_eq!(value.ty(), Type::Int);
             assert_eq!(*ty, Type::Int);
         } else {
@@ -883,7 +903,10 @@ mod tests {
     fn broadcasting_incompatible() -> Result<(), Box<dyn Error>> {
         if let Err(e) = analyze_expr("xy:[1, 2] + rgba:[1, 2, 3, 4]") {
             if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
-                assert_eq!(tye.message, "no matching overload for function \"__add\"");
+                assert_eq!(
+                    tye.message,
+                    "no matching overload for function \"__add\" with args [Tuple(2), Tuple(4)]"
+                );
                 Ok(())
             } else {
                 panic!("expected type error");

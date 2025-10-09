@@ -71,8 +71,8 @@ impl WgslCompiler {
 
     fn is_wgsl_intrinsic(&self, name: &str) -> bool {
         match name {
-            "sin" => true,
             "abs" => true,
+            "sin" => true,
             _ => false,
         }
     }
@@ -96,6 +96,13 @@ impl WgslCompiler {
     }
 
     fn compile_expr(&mut self, expr: &ast::Expression) -> Result<usize, TypeError> {
+        if expr.ty() == crate::sema::Type::Unknown {
+            return Err(TypeError::with_pos(
+                format!("untyped expr {:?}", expr),
+                0,
+                0,
+            ));
+        }
         match expr {
             ast::Expression::FunctionCall { name, args, ty } => {
                 // Compile args and keep track of their variable idx.
@@ -171,7 +178,7 @@ impl WgslCompiler {
                 self.writer.line(&s);
                 Ok(idx)
             }
-            ast::Expression::Cast { tag, expr, ty } => {
+            ast::Expression::Cast { expr, ty, .. } => {
                 let expr_idx = self.compile_expr(expr)?;
                 let (mut s, idx) = self.var_decl(&ty);
                 s.push_str(
@@ -186,7 +193,6 @@ impl WgslCompiler {
                 // Same logic as self.var_decl, but use the existing name to make
                 // debugging easier.
                 let idx = self.local_var_idx;
-                let s = format!("var {}_{} : {} = ", LOCAL_VAR_PREFIX, idx, ty.as_wgsl());
                 self.local_var_idx += 1;
 
                 let s = format!(
@@ -244,6 +250,27 @@ impl WgslCompiler {
 
                 Ok(eval_idx)
             }
+            ast::Expression::While {
+                condition,
+                body,
+                ty,
+            } => {
+                let (mut s, eval_idx) = self.var_decl2(&ty);
+                s.push_str(";");
+                self.writer.line(&s);
+
+                let cond_idx = self.compile_expr(&condition)?;
+
+                let branch = format!("while ({} != 0) {{", self.var_name(cond_idx));
+                self.writer.line(&branch);
+                self.writer.indent();
+                self.compile_expr_block(&body)?;
+
+                self.writer.dedent();
+                self.writer.line("}");
+
+                Ok(eval_idx)
+            }
             ast::Expression::Index {
                 expr: array,
                 index,
@@ -263,11 +290,6 @@ impl WgslCompiler {
 
                 Ok(idx)
             }
-            _ => Err(TypeError::with_pos(
-                format!("unimplemented wgsl expr {:?}", expr),
-                0,
-                0,
-            )),
         }
     }
 

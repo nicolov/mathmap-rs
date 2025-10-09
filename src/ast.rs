@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
+use crate::SyntaxError;
 use crate::lexer::{self, Spanned, TokenKind};
 use crate::sema::Type;
-use crate::{SyntaxError, TypeError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TupleTag {
