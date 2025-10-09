@@ -90,3 +90,21 @@ canvas {
     text-align: center;
     padding: 0 0.5rem;
 }
+
+.example-links {
+    width: 90%;
+    font-size: 0.9rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.example-links a {
+    color: #4a90e2;
+    text-decoration: none;
+}
+
+.example-links a:hover,
+.example-links a:focus {
+    text-decoration: underline;
+}

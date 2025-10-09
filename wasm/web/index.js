@@ -368,32 +368,73 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    const filterTarget = `\
-# This is an example Mathmap script.
-# Try changing some of the numbers below
-# and press "Render" to see what happens
-# to the image on the right.
-
-filter target ()
-    if r % 0.4 < 0.2 then
-        rgbColor(1, 0, 0)
-    else
-        rgbColor(1, 1, 1)
-    end
-end
-`;
-
-    const filterRed = `\
-filter red ()
-    rgbColor(0.0, 1.0, 0.0)
-end
-`;
     const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
     const fragmentState = readStateFromFragment();
     const inputBox = document.getElementById("inputBox");
     const gpuToggle = document.getElementById("gpuToggle");
 
-    inputBox.value = fragmentState.script ?? (isLocalhost ? filterRed : filterTarget);
+    const exampleSources = {
+        disco: `filter disco ()
+    red_wavelength=10;
+    green_wavelength=15;
+    blue_wavelength=20;
+    zoom=500;
+    rl=red_wavelength;
+    gl=green_wavelength;
+    bl=blue_wavelength;
+    q=t*2*pi;
+    rz=r*zoom;
+    abs(rgba:[sin(rz/rl+q)+sin(a*rl+q),
+              sin(rz/gl+q)+sin(a*gl+q),
+              sin(rz/bl+q)+sin(a*bl+q),2])
+end
+`,
+        heart: `filter heart ()
+    rR = 218/255;  rG = 41/255;  rB = 28/255;
+
+    red = rgbColor(rR, rG, rB);
+    white = rgbColor(1, 1, 1);
+
+    X = x * 1.4;
+    Y = (y + 0.15) * 1.4;
+
+    f = (X*X + Y*Y - 1)^3 - (X*X)*(Y*Y*Y);
+
+    if f <= 0 then
+        white
+    else
+        red
+    end;
+end
+`,
+        spiral: `filter spiral ()
+    rotations=5;
+    q=sin(r*rotations*pi*2-a+t*2*pi)*0.5+0.5;
+    grayColor(q)
+end
+`,
+    };
+
+    document.querySelectorAll("[data-example]").forEach((link) => {
+        link.addEventListener("click", (event) => {
+            event.preventDefault();
+            const key = link.dataset.example;
+            const text = key ? exampleSources[key] : null;
+            if (!text) {
+                setError(`Unknown example "${key ?? ""}"`);
+                return;
+            }
+            inputBox.value = text;
+            writeStateToFragment({
+                script: inputBox.value,
+                gpu: gpuToggle.checked,
+            });
+            setError(null);
+            void render();
+        });
+    });
+
+    inputBox.value = fragmentState.script ?? exampleSources.spiral;
 
     gpuToggle.checked = fragmentState.gpu ?? isLocalhost;
 
