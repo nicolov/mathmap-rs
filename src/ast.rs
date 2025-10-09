@@ -2,7 +2,11 @@
 
 use crate::SyntaxError;
 use crate::lexer::{self, Spanned, TokenKind};
-use crate::sema::Type;
+use crate::sema::{Arity, Type};
+
+use std::fmt;
+
+pub type TagVar = char;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TupleTag {
@@ -19,6 +23,15 @@ pub enum TupleTag {
     Quat,  // Non-commutative quaternion
     Cquat, // Commutative quaternion
     Hyper, // Hypercomplex number
+
+    Var(TagVar), // Used for typechecking.
+}
+
+impl fmt::Display for TupleTag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = format!("{:?}", self);
+        write!(f, "{}", s.to_lowercase())
+    }
 }
 
 impl TupleTag {
@@ -37,6 +50,9 @@ impl TupleTag {
             TupleTag::Quat => 4,
             TupleTag::Cquat => 4,
             TupleTag::Hyper => 8,
+            TupleTag::Var(..) => {
+                unimplemented!()
+            }
         }
     }
 }
@@ -196,7 +212,7 @@ impl Expression {
     pub fn float_(value: f32) -> Self {
         Self::FloatConst {
             value,
-            ty: Type::Tuple(1),
+            ty: Type::tuple_sized(1),
         }
     }
 
@@ -205,7 +221,7 @@ impl Expression {
         Self::TupleConst {
             tag,
             values,
-            ty: Type::Tuple(len),
+            ty: Type::Tuple(tag, Arity::Sized(len)),
         }
     }
 

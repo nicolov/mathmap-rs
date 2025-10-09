@@ -210,11 +210,7 @@ impl WgslCompiler {
                     self.local_vars.insert(name.to_string());
                 } else {
                     // Just assign the new expr.
-                    let s = format!(
-                        "{} = {};",
-                        name,
-                        self.var_name(value_idx)
-                    );
+                    let s = format!("{} = {};", name, self.var_name(value_idx));
                     self.writer.line(&s);
                 }
 
