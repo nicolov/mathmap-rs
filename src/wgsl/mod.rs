@@ -4,6 +4,7 @@
 
 use crate::ast::Expression;
 use crate::{MathMapError, TypeError, ast, sema};
+use std::collections::HashSet;
 
 struct LineWriter {
     buf: String,
@@ -49,6 +50,7 @@ struct WgslCompiler {
     writer: LineWriter,
     // TODO: Make a proper symbol table to keep track of variables.
     local_var_idx: usize,
+    local_vars: HashSet<String>,
 }
 
 impl WgslCompiler {
@@ -56,6 +58,7 @@ impl WgslCompiler {
         Self {
             writer: LineWriter::new(),
             local_var_idx: 0,
+            local_vars: HashSet::new(),
         }
     }
 
@@ -195,14 +198,25 @@ impl WgslCompiler {
                 let idx = self.local_var_idx;
                 self.local_var_idx += 1;
 
-                let s = format!(
-                    "var {} : {} = {}_{};",
-                    name,
-                    ty.as_wgsl(),
-                    LOCAL_VAR_PREFIX,
-                    value_idx
-                );
-                self.writer.line(&s);
+                if !self.local_vars.contains(name) {
+                    // Declare the variable if it doesn't already exist.
+                    let s = format!(
+                        "var {} : {} = {};",
+                        name,
+                        ty.as_wgsl(),
+                        self.var_name(value_idx),
+                    );
+                    self.writer.line(&s);
+                    self.local_vars.insert(name.to_string());
+                } else {
+                    // Just assign the new expr.
+                    let s = format!(
+                        "{} = {};",
+                        name,
+                        self.var_name(value_idx)
+                    );
+                    self.writer.line(&s);
+                }
 
                 Ok(idx)
             }
