@@ -880,7 +880,7 @@ mod tests {
                 panic!("expected type error");
             }
         } else {
-            panic!("expected the parser to fail");
+            panic!("expected typechecking to fail");
         }
     }
 
@@ -912,7 +912,7 @@ mod tests {
                 panic!("expected type error");
             }
         } else {
-            panic!("expected the parser to fail");
+            panic!("expected typechecking to fail");
         }
     }
 
@@ -970,7 +970,7 @@ mod tests {
                 panic!("expected type error");
             }
         } else {
-            panic!("expected the parser to fail");
+            panic!("expected typechecking to fail");
         }
     }
 
@@ -984,7 +984,7 @@ mod tests {
                 panic!("expected type error");
             }
         } else {
-            panic!("expected the parser to fail");
+            panic!("expected typechecking to fail");
         }
     }
 
@@ -998,7 +998,7 @@ mod tests {
                 panic!("expected type error");
             }
         } else {
-            panic!("expected the parser to fail");
+            panic!("expected typechecking to fail");
         }
     }
 
@@ -1012,7 +1012,7 @@ mod tests {
                 panic!("expected type error");
             }
         } else {
-            panic!("expected the parser to fail");
+            panic!("expected typechecking to fail");
         }
     }
 
@@ -1040,7 +1040,7 @@ mod tests {
                 panic!("expected type error");
             }
         } else {
-            panic!("expected the parser to fail");
+            panic!("expected typechecking to fail");
         }
     }
 
@@ -1061,7 +1061,7 @@ mod tests {
                 panic!("expected type error");
             }
         } else {
-            panic!("expected the parser to fail");
+            panic!("expected typechecking to fail");
         }
     }
 }
