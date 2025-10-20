@@ -240,6 +240,13 @@ impl Expression {
         }
     }
 
+    pub fn variable_ty_(name: impl Into<String>, ty: Type) -> Self {
+        Self::Variable {
+            name: name.into(),
+            ty,
+        }
+    }
+
     pub fn if_(condition: Self, then: Vec<Self>, else_: Vec<Self>) -> Self {
         Self::If {
             condition: Box::new(condition),

@@ -71,6 +71,10 @@ impl Type {
         Self::tuple_tag(TupleTag::Ri, 2)
     }
 
+    pub fn xy() -> Self {
+        Self::tuple_tag(TupleTag::Xy, 2)
+    }
+
     pub fn tuplevar(tagvar: TagVar, nvar: ArityVar) -> Self {
         Self::Tuple(TupleTag::Var(tagvar), Arity::Var(nvar))
     }
@@ -352,6 +356,22 @@ impl FunctionTable {
         let mut tag_constraints: HashMap<char, TupleTag> = HashMap::new();
         for (param, arg) in cand.signature.params.iter().zip(arg_tys.iter()) {
             if let Type::Tuple(param_tag, param_arity) = &param.ty {
+                // Handle tags: if both tags are concrete and they don't match, reject the candidate.
+                // For now we do it here, but maybe we want to move it below close to the broadcasting and
+                // type promotion logic so we can do some kind of tag promotion too.
+                if let Type::Tuple(arg_tag, ..) = arg {
+                    if !matches!(param_tag, TupleTag::Var(_))
+                        && !matches!(arg_tag, TupleTag::Var(_))
+                        && *param_tag != *arg_tag
+                    {
+                        println!(
+                            "  reject candidate because for {}, {} != {}",
+                            param.name, param_tag, arg_tag
+                        );
+                        return None;
+                    }
+                }
+
                 // Handle tags: if the param has a tag var, and the arg has a known tag, then unify.
                 if let TupleTag::Var(param_tv) = param_tag {
                     if let Type::Tuple(arg_tag, ..) = arg {
@@ -584,7 +604,7 @@ impl SymbolTable {
         let mut vars = HashMap::new();
         vars.insert("x".to_string(), Type::scalar());
         vars.insert("y".to_string(), Type::scalar());
-        vars.insert("xy".to_string(), Type::tuple_sized(2));
+        vars.insert("xy".to_string(), Type::xy());
 
         vars.insert("r".to_string(), Type::scalar());
         vars.insert("a".to_string(), Type::scalar());
@@ -941,8 +961,8 @@ mod tests {
         if let E::FunctionCall { name, args, ty } = expr {
             assert_eq!(name, "abs");
             assert_eq!(args.len(), 1);
-            assert_eq!(args[0].ty(), Type::tuple_sized(2));
-            assert_eq!(*ty, Type::tuple_sized(2));
+            assert_eq!(args[0].ty(), Type::xy());
+            assert_eq!(*ty, Type::xy());
         } else {
             panic!("expected function call");
         }
@@ -952,15 +972,18 @@ mod tests {
     #[test]
     fn polymorphic_binary() -> Result<(), Box<dyn Error>> {
         let expr = &analyze_expr("xy + xy")?[0];
-        if let E::FunctionCall { name, args, ty } = expr {
-            assert_eq!(name, "__add");
-            assert_eq!(args.len(), 2);
-            assert_eq!(args[0].ty(), Type::tuple_sized(2));
-            assert_eq!(args[1].ty(), Type::tuple_sized(2));
-            assert_eq!(*ty, Type::tuple_sized(2));
-        } else {
-            panic!("expected function call");
-        }
+
+        let expected_ast = E::FunctionCall {
+            name: "__add".to_string(),
+            args: vec![
+                E::variable_ty_("xy", Type::xy()),
+                E::variable_ty_("xy", Type::xy()),
+            ],
+            ty: Type::xy(),
+        };
+
+        assert_eq!(*expr, expected_ast);
+
         Ok(())
     }
 
@@ -1055,17 +1078,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn broadcasting() -> Result<(), Box<dyn Error>> {
         let expr = &analyze_expr("xy:[1.0, 2.0] + 1.0")?[0];
 
         let expected_ast = E::FunctionCall {
-            name: "__add".to_string(),
+            name: "add_ri_ri".to_string(),
             args: vec![
                 E::tuple_(TupleTag::Xy, vec![E::float_(1.0), E::float_(2.0)]),
                 E::float_(1.0),
             ],
-            ty: Type::tuple_sized(2),
+            ty: Type::ri(),
         };
         assert_eq!(*expr, expected_ast);
 
@@ -1117,7 +1139,7 @@ mod tests {
     fn if_wrong_branch_type() -> Result<(), Box<dyn Error>> {
         if let Err(e) = analyze_expr("if xy then 2 else 3 end") {
             if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
-                assert_eq!(tye.message, "if condition must be int, found nil:2");
+                assert_eq!(tye.message, "if condition must be int, found xy:2");
                 Ok(())
             } else {
                 panic!("expected type error");
