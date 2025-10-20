@@ -75,6 +75,10 @@ impl Type {
         Self::tuple_tag(TupleTag::Xy, 2)
     }
 
+    pub fn quat() -> Self {
+        Self::tuple_tag(TupleTag::Quat, 4)
+    }
+
     pub fn tuplevar(tagvar: TagVar, nvar: ArityVar) -> Self {
         Self::Tuple(TupleTag::Var(tagvar), Arity::Var(nvar))
     }
@@ -316,6 +320,14 @@ impl FunctionTable {
         // otherwise.
         def_float_unary("abs");
         def_float_unary("sin");
+
+        fns.get_mut("abs").unwrap().push(FuncDef {
+            signature: FuncSignature {
+                name: "abs_quat".to_string(),
+                params: vec![func_param("x", Type::quat())],
+                ret: Type::scalar(),
+            },
+        });
 
         let mut def_bool_binary = |name: &str| {
             fns.insert(
@@ -977,6 +989,20 @@ mod tests {
     }
 
     #[test]
+    fn quat_abs() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("abs(quat:[1, 2, 3, 4])")?[0];
+        if let E::FunctionCall { name, args, ty } = expr {
+            assert_eq!(name, "abs_quat");
+            assert_eq!(args.len(), 1);
+            assert_eq!(args[0].ty(), Type::quat());
+            assert_eq!(*ty, Type::scalar());
+        } else {
+            panic!("expected function call");
+        }
+        Ok(())
+    }
+
+    #[test]
     fn polymorphic_binary() -> Result<(), Box<dyn Error>> {
         let expr = &analyze_expr("xy + xy")?[0];
 
@@ -1013,7 +1039,10 @@ mod tests {
     fn add_wrong_tag() -> Result<(), Box<dyn Error>> {
         if let Err(e) = analyze_expr("ri:xy + xy") {
             if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
-                assert_eq!(tye.message, "no matching overload for function \"__add\" with args [ri:2, xy:2]");
+                assert_eq!(
+                    tye.message,
+                    "no matching overload for function \"__add\" with args [ri:2, xy:2]"
+                );
                 Ok(())
             } else {
                 panic!("expected type error");
