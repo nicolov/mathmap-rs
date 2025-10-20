@@ -1010,6 +1010,20 @@ mod tests {
     }
 
     #[test]
+    fn add_wrong_tag() -> Result<(), Box<dyn Error>> {
+        if let Err(e) = analyze_expr("ri:xy + xy") {
+            if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
+                assert_eq!(tye.message, "no matching overload for function \"__add\" with args [ri:2, xy:2]");
+                Ok(())
+            } else {
+                panic!("expected type error");
+            }
+        } else {
+            panic!("expected typechecking to fail");
+        }
+    }
+
+    #[test]
     fn tuple_const() -> Result<(), Box<dyn Error>> {
         let expr = &analyze_expr("xy:[1.0, 2.0]")?[0];
         if let E::TupleConst { tag, values, ty } = expr {
