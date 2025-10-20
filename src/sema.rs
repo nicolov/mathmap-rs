@@ -359,37 +359,44 @@ impl FunctionTable {
                 // Handle tags: if both tags are concrete and they don't match, reject the candidate.
                 // For now we do it here, but maybe we want to move it below close to the broadcasting and
                 // type promotion logic so we can do some kind of tag promotion too.
-                if let Type::Tuple(arg_tag, ..) = arg {
-                    if !matches!(param_tag, TupleTag::Var(_))
-                        && !matches!(arg_tag, TupleTag::Var(_))
-                        && *param_tag != *arg_tag
-                    {
-                        println!(
-                            "  reject candidate because for {}, {} != {}",
-                            param.name, param_tag, arg_tag
-                        );
-                        return None;
+                // We don't do this for scalars (which always have nil type) to allow broadcasting.
+                if let Type::Tuple(arg_tag, arg_arity) = arg {
+                    if !matches!(arg_arity, Arity::Sized(1)) {
+                        if !matches!(param_tag, TupleTag::Var(_))
+                            && !matches!(arg_tag, TupleTag::Var(_))
+                            && *param_tag != *arg_tag
+                        {
+                            println!(
+                                "  reject candidate because for {}, {} != {}",
+                                param.name, param_tag, arg_tag
+                            );
+                            return None;
+                        }
                     }
                 }
 
                 // Handle tags: if the param has a tag var, and the arg has a known tag, then unify.
+                // We don't do this for scalars (which always have nil type) to allow broadcasting.
                 if let TupleTag::Var(param_tv) = param_tag {
-                    if let Type::Tuple(arg_tag, ..) = arg {
-                        if let Some(prev) = tag_constraints.get(&param_tv) {
-                            if *prev != *arg_tag {
-                                println!(
-                                    "  reject candidate because for {} {} != {}",
-                                    param_tv, prev, arg_tag
-                                );
-                                return None;
+                    if let Type::Tuple(arg_tag, arg_arity) = arg {
+                        if !matches!(arg_arity, Arity::Sized(1)) {
+                            if let Some(prev) = tag_constraints.get(&param_tv) {
+                                if *prev != *arg_tag {
+                                    println!(
+                                        "  reject candidate because for {} {} != {}",
+                                        param_tv, prev, arg_tag
+                                    );
+                                    return None;
+                                }
+                            } else {
+                                tag_constraints.insert(*param_tv, *arg_tag);
                             }
-                        } else {
-                            tag_constraints.insert(*param_tv, *arg_tag);
                         }
                     }
                 }
 
                 // Handle arity: if the param has a arity var, and the arg has known arity, then unify.
+                // We don't do this for scalars (which always have nil type) to allow broadcasting.
                 if let Arity::Var(tv) = param_arity {
                     // Ignore scalars for now.
                     if let Type::Tuple(_, Arity::Sized(k)) = arg
@@ -1082,12 +1089,12 @@ mod tests {
         let expr = &analyze_expr("xy:[1.0, 2.0] + 1.0")?[0];
 
         let expected_ast = E::FunctionCall {
-            name: "add_ri_ri".to_string(),
+            name: "__add".to_string(),
             args: vec![
                 E::tuple_(TupleTag::Xy, vec![E::float_(1.0), E::float_(2.0)]),
                 E::float_(1.0),
             ],
-            ty: Type::ri(),
+            ty: Type::Tuple(TupleTag::Xy, Arity::Sized(2)),
         };
         assert_eq!(*expr, expected_ast);
 
