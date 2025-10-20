@@ -67,6 +67,10 @@ impl Type {
         Self::tuple_tag(TupleTag::Rgba, 4)
     }
 
+    pub fn ri() -> Self {
+        Self::tuple_tag(TupleTag::Ri, 2)
+    }
+
     pub fn tuplevar(tagvar: TagVar, nvar: ArityVar) -> Self {
         Self::Tuple(TupleTag::Var(tagvar), Arity::Var(nvar))
     }
@@ -112,11 +116,32 @@ pub fn func_param(name: &str, ty: Type) -> FuncParam {
     };
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct FuncSignature {
     pub name: String,
     pub params: Vec<FuncParam>,
     pub ret: Type,
+}
+
+impl fmt::Display for FuncSignature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: (", self.name)?;
+
+        for (idx, param) in self.params.iter().enumerate() {
+            if idx > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", param.ty)?;
+        }
+
+        write!(f, ") -> {}", self.ret)
+    }
+}
+
+impl fmt::Debug for FuncSignature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -201,6 +226,25 @@ impl FunctionTable {
         def_int_float_binary("__mul");
         def_int_float_binary("__mod");
         def_int_float_binary("__pow");
+
+        // For add:
+        // [x] (ri:2, ri:2) -> ri:2
+        // [ ] (ri:2, ?:1) -> ri:2
+        // [ ] (?:1, ri:2) -> ri:2
+        // [ ] (?t:1, ?t:1) -> ?t:1
+        // [ ] (?t:?l, ?:1) -> ?t:?l
+        // [x] (?t:?l, ?t:?l) -> ?t:?l
+
+        let add = "__add".to_string();
+
+        // [x] (ri:2, ri:2) -> ri:2
+        fns.get_mut(&add).unwrap().push(FuncDef {
+            signature: FuncSignature {
+                name: "add_ri_ri".to_string(),
+                params: vec![func_param("x", Type::ri()), func_param("y", Type::ri())],
+                ret: Type::ri(),
+            },
+        });
 
         let mut def_comparison = |name: &str| {
             fns.insert(
@@ -313,7 +357,10 @@ impl FunctionTable {
                     if let Type::Tuple(arg_tag, ..) = arg {
                         if let Some(prev) = tag_constraints.get(&param_tv) {
                             if *prev != *arg_tag {
-                                println!("  reject candidate because for {} {} != {}", param_tv, prev, arg_tag);
+                                println!(
+                                    "  reject candidate because for {} {} != {}",
+                                    param_tv, prev, arg_tag
+                                );
                                 return None;
                             }
                         } else {
@@ -434,7 +481,7 @@ impl FunctionTable {
                 _ => None,
             };
 
-            println!("broadcast {:?} {:?}", param, arg);
+            println!("  broadcast {:?} {:?}", param, arg);
 
             if let Some(_bcast) = bcast {
                 total_cost += 2;
@@ -479,11 +526,23 @@ impl FunctionTable {
             0,
         ))?;
 
-        let mut matches: Vec<(OverloadResolutionResult, usize)> = Vec::new();
+        let mut matches: Vec<(OverloadResolutionResult, usize, usize)> = Vec::new();
 
         for cand in candidates {
             if let Some((res, cost)) = self.check_candidate(cand, arg_tys) {
-                matches.push((res, cost));
+                // Count how many typevars are in the function signature: this is used to break ties
+                // by preferring more specific matches. Note that this could be done at compile time
+                // instead.
+                let num_typevars: usize = cand
+                    .signature
+                    .params
+                    .iter()
+                    .map(|p| match p.ty {
+                        Type::Tuple(_, Arity::Var(_)) => 1,
+                        _ => 0,
+                    })
+                    .sum();
+                matches.push((res, cost, num_typevars));
             }
         }
 
@@ -498,10 +557,11 @@ impl FunctionTable {
             ));
         } else {
             // Pick the best match.
-            matches.sort_by_key(|(_, num_casts)| *num_casts);
-            let (best, best_cost) = &matches[0];
+            matches.sort_by_key(|&(_, num_casts, num_typevars)| (num_casts, num_typevars));
+            let (best, best_cost, best_num_typevars) = &matches[0];
 
-            if matches.len() > 1 && matches[1].1 == *best_cost {
+            if matches.len() > 1 && matches[1].1 == *best_cost && matches[1].2 == *best_num_typevars
+            {
                 return Err(TypeError::with_pos(
                     format!("ambiguous overload for function {:?}, {:?}", name, matches),
                     0,
@@ -555,7 +615,6 @@ impl SemanticAnalyzer {
             // Types of int and float literals are already filled in by the parser.
             Expression::IntConst { .. } => Ok(()),
             Expression::FloatConst { .. } => Ok(()),
-            // Expression::TupleConst { .. } => Ok(()),
             Expression::FunctionCall { name, args, ty } => {
                 for arg in &mut *args {
                     self.analyze_expr(arg)?;
@@ -590,6 +649,10 @@ impl SemanticAnalyzer {
 
                 // Annotate the return type with the (potentially polymorphic) return type.
                 *ty = func.ret_ty.clone();
+                // Rewrite the function name with the selected overload: this allows name
+                // mangling since WGSL doesn't allow overloading.
+                *name = func.def.signature.name.clone();
+
                 Ok(())
             }
             Expression::Assignment { name, value, ty } => {
@@ -895,6 +958,21 @@ mod tests {
             assert_eq!(args[0].ty(), Type::tuple_sized(2));
             assert_eq!(args[1].ty(), Type::tuple_sized(2));
             assert_eq!(*ty, Type::tuple_sized(2));
+        } else {
+            panic!("expected function call");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn add_ri() -> Result<(), Box<dyn Error>> {
+        let expr = &analyze_expr("ri:xy + ri:xy")?[0];
+        if let E::FunctionCall { name, args, ty } = expr {
+            assert_eq!(name, "add_ri_ri");
+            assert_eq!(args.len(), 2);
+            assert_eq!(args[0].ty(), Type::ri());
+            assert_eq!(args[1].ty(), Type::ri());
+            assert_eq!(*ty, Type::ri());
         } else {
             panic!("expected function call");
         }

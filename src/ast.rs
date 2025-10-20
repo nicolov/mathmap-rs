@@ -559,7 +559,9 @@ impl<'a> Parser<'a> {
 
                             expr = Expression::tuple_(tag, args)
                         } else {
-                            let rhs_expr = self.parse_expression(1)?;
+                            // Parse the cast operand with a higher minimum precedence so that
+                            // infix operators don't get absorbed into the cast.
+                            let rhs_expr = self.parse_expression(8)?;
                             expr = Expression::cast_(tag, rhs_expr)
                         }
                     } else {
@@ -896,6 +898,22 @@ mod tests {
         let ast_ref = Expression::tuple_(
             TupleTag::Rgba,
             vec![E::int_(1), E::int_(2), E::int_(3), E::int_(4)],
+        );
+        assert_eq!(ast, ast_ref);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_expr_cast_sum() -> Result<(), SyntaxError> {
+        let input = "ri:xy + ri:xy";
+        let ast = parse_as_expr(input)?;
+
+        let ast_ref = Expression::function_call_(
+            "__add",
+            vec![
+                E::cast_with_ty_(TupleTag::Ri, E::variable_("xy"), Type::Unknown),
+                E::cast_with_ty_(TupleTag::Ri, E::variable_("xy"), Type::Unknown),
+            ],
         );
         assert_eq!(ast, ast_ref);
         Ok(())
