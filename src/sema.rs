@@ -75,11 +75,20 @@ impl Type {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Type::Unknown => write!(f, "?"),
             Type::Int => write!(f, "int"),
+            Type::Tuple(TupleTag::Var(tv), Arity::Sized(n)) => {
+                write!(f, "?{}:{}", tv, n)
+            }
+            Type::Tuple(TupleTag::Var(tv), Arity::Var(av)) => {
+                write!(f, "?{}:?{}", tv, av)
+            }
             Type::Tuple(tag, Arity::Sized(n)) => {
                 write!(f, "{}:{}", tag, n)
             }
-            _ => todo!("type {:?} can not be converted to string", self),
+            Type::Tuple(tag, Arity::Var(av)) => {
+                write!(f, "{}:?{}", tag, av)
+            }
         }
     }
 }
@@ -291,6 +300,8 @@ impl FunctionTable {
             return None;
         }
 
+        println!("checking {:?}", cand.signature);
+
         // Constrain typevars according to (non-scalar) arguments. Leave scalars alone for now.
         // eg. this is a mapping 'N' -> 3, etc..
         let mut arity_constraints: HashMap<char, usize> = HashMap::new();
@@ -302,6 +313,7 @@ impl FunctionTable {
                     if let Type::Tuple(arg_tag, ..) = arg {
                         if let Some(prev) = tag_constraints.get(&param_tv) {
                             if *prev != *arg_tag {
+                                println!("  reject candidate because for {} {} != {}", param_tv, prev, arg_tag);
                                 return None;
                             }
                         } else {
@@ -320,6 +332,7 @@ impl FunctionTable {
                         // Otherwise, create a new one.
                         if let Some(prev) = arity_constraints.get(&tv) {
                             if *prev != *k {
+                                println!("  reject candidate because {} != {}", prev, k);
                                 return None;
                             }
                         } else {
@@ -421,6 +434,8 @@ impl FunctionTable {
                 _ => None,
             };
 
+            println!("broadcast {:?} {:?}", param, arg);
+
             if let Some(_bcast) = bcast {
                 total_cost += 2;
 
@@ -440,6 +455,8 @@ impl FunctionTable {
         }
 
         let ret_ty = apply_typevars(&cand.signature.ret);
+
+        println!("  ret {:?}", ret_ty);
 
         Some((
             OverloadResolutionResult {
@@ -1078,7 +1095,10 @@ mod tests {
     fn cast_wrong_arity() -> Result<(), Box<dyn Error>> {
         if let Err(e) = analyze_expr("a = xy:[1, 2]; b = rgba:a") {
             if let Some(TypeError(tye)) = e.downcast_ref::<TypeError>() {
-                assert_eq!(tye.message, "can not cast tuple of 2 values to tuple rgba of 4 values");
+                assert_eq!(
+                    tye.message,
+                    "can not cast tuple of 2 values to tuple rgba of 4 values"
+                );
                 Ok(())
             } else {
                 panic!("expected type error");
