@@ -6,6 +6,10 @@ fn FN_grayColor(x: f32) -> vec4<f32> {
     return vec4<f32>(x, x, x, 1.0);
 }
 
+fn FN_abs_quat(x: vec4<f32>) -> f32 {
+    return x[0]*x[0] + x[1]*x[1] + x[2]*x[2] + x[3]*x[3];
+}
+
 fn FN___mod(x: f32, y: f32) -> f32 {
     return x % y;
 }
@@ -16,6 +20,14 @@ fn FN___neg(x: f32) -> f32 {
 
 fn FN___or(x: i32, y: i32) -> i32 {
     if (x != 0) || (y != 0) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+fn FN___and(x: i32, y: i32) -> i32 {
+    if (x != 0) && (y != 0) {
         return 1;
     } else {
         return 0;

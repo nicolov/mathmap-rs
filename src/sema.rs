@@ -260,7 +260,7 @@ impl FunctionTable {
                 vec![FuncDef {
                     signature: FuncSignature {
                         name: name.to_string(),
-                        params: vec![func_param("x", Type::Int), func_param("y", Type::Int)],
+                        params: vec![func_param("x", Type::scalar()), func_param("y", Type::scalar())],
                         ret: Type::Int,
                     },
                 }],
