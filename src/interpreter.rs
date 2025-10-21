@@ -404,6 +404,19 @@ fn eval_function_call(
                 Value::Int(x) => Ok(Value::Tuple(TupleTag::Nil, vec![f32::from(x as f32).ln()])),
             }
         }
+        "sqrt" => {
+            assert!(args.len() == 1);
+            let a = args[0].clone();
+            match a {
+                Value::Tuple(tag, data) => {
+                    Ok(Value::Tuple(tag, data.iter().map(|x| x.sqrt()).collect()))
+                }
+                Value::Int(x) => Ok(Value::Tuple(
+                    TupleTag::Nil,
+                    vec![f32::from(x as f32).sqrt()],
+                )),
+            }
+        }
         "min" => {
             assert!(args.len() == 2);
             eval_binary_op(&args[0], &args[1], |x, y| x.min(y), |x, y| x.min(y), false)
