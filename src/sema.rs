@@ -254,6 +254,14 @@ impl FunctionTable {
             },
         });
 
+        fns.get_mut("__mul").unwrap().push(FuncDef {
+            signature: FuncSignature {
+                name: "mul_quat_quat".to_string(),
+                params: vec![func_param("x", Type::quat()), func_param("y", Type::quat())],
+                ret: Type::quat(),
+            },
+        });
+
         let mut def_comparison = |name: &str| {
             fns.insert(
                 name.to_string(),
