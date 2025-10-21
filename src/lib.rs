@@ -1,4 +1,5 @@
 mod ast;
+mod color;
 mod err;
 mod interpreter;
 mod lexer;
@@ -8,6 +9,8 @@ mod wgsl;
 pub use err::MathMapError;
 pub use err::SyntaxError;
 pub use err::TypeError;
+
+use crate::ast::TupleTag;
 
 pub fn exec_mathmap_file(
     srcpath: &str,
@@ -52,21 +55,36 @@ pub fn exec_mathmap_script(
                 let yf = -yf;
 
                 match interpreter::eval_filter(&filter, xf, yf, t) {
-                    Ok(value) => {
-                        if let interpreter::Value::Tuple(_, data) = value {
-                            let r = data[0] * 255.0;
-                            let g = data[1] * 255.0;
-                            let b = data[2] * 255.0;
-                            let a = data[3] * 255.0;
-                            *p = image::Rgba([r as u8, g as u8, b as u8, a as u8])
-                        } else {
-                            return Err(err::RuntimeError::with_pos(
-                                "filter did not return a tuple",
-                                0,
-                                0,
-                            )
-                            .into());
-                        }
+                    Ok(interpreter::Value::Tuple(TupleTag::Rgba, data)) => {
+                        let r = data[0] * 255.0;
+                        let g = data[1] * 255.0;
+                        let b = data[2] * 255.0;
+                        let a = data[3] * 255.0;
+                        *p = image::Rgba([r as u8, g as u8, b as u8, a as u8])
+                    }
+                    Ok(interpreter::Value::Tuple(TupleTag::Hsva, data)) => {
+                        let rgba = color::hsva_to_rgba(data);
+                        let r = rgba[0] * 255.0;
+                        let g = rgba[1] * 255.0;
+                        let b = rgba[2] * 255.0;
+                        let a = rgba[3] * 255.0;
+                        *p = image::Rgba([r as u8, g as u8, b as u8, a as u8])
+                    }
+                    Ok(interpreter::Value::Tuple(tag, _)) => {
+                        return Err(err::RuntimeError::with_pos(
+                            format!("filter returned tuple of unexpected tag {:?}", tag),
+                            0,
+                            0,
+                        )
+                        .into());
+                    }
+                    Ok(_) => {
+                        return Err(err::RuntimeError::with_pos(
+                            "filter did not return a tuple",
+                            0,
+                            0,
+                        )
+                        .into());
                     }
                     Err(e) => {
                         return Err(e.into());

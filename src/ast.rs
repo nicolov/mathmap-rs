@@ -547,6 +547,7 @@ impl<'a> Parser<'a> {
                             "ri" => TupleTag::Ri,
                             "xy" => TupleTag::Xy,
                             "quat" => TupleTag::Quat,
+                            "hsva" => TupleTag::Hsva,
                             _ => panic!("unknown tuple tag {:?}", name),
                         };
 
