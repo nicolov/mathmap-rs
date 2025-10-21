@@ -266,14 +266,19 @@ impl WgslCompiler {
                 ty,
             } => {
                 let (mut s, eval_idx) = self.var_decl2(&ty);
-                s.push_str(";");
+                s.push_str(" = 0;");
                 self.writer.line(&s);
 
-                let cond_idx = self.compile_expr(&condition)?;
-
-                let branch = format!("while ({} != 0) {{", self.var_name(cond_idx));
-                self.writer.line(&branch);
+                self.writer.line("loop {");
                 self.writer.indent();
+                let cond_idx = self.compile_expr(condition)?;
+                let guard = format!("if ({} == 0) {{", self.var_name(cond_idx));
+                self.writer.line(&guard);
+                self.writer.indent();
+                self.writer.line("break;");
+                self.writer.dedent();
+                self.writer.line("}");
+
                 self.compile_expr_block(&body)?;
 
                 self.writer.dedent();
