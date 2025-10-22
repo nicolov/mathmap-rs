@@ -76,6 +76,7 @@ async function run() {
     canvas.width = width;
     canvas.height = height;
     let gpuState = null;
+    let cachedAdapter = null;
 
     function triggerDownload(url, filename) {
         const anchor = document.createElement("a");
@@ -111,10 +112,11 @@ async function run() {
         if (!navigator.gpu) {
             throw new Error("WebGPU is not supported in this browser");
         }
-        const adapter = await navigator.gpu.requestAdapter();
+        const adapter = cachedAdapter ?? await navigator.gpu.requestAdapter();
         if (!adapter) {
             throw new Error("Failed to acquire WebGPU adapter");
         }
+        cachedAdapter = adapter;
         const device = await adapter.requestDevice();
         const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
         const context = canvas.getContext("webgpu");
@@ -372,6 +374,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     const fragmentState = readStateFromFragment();
     const inputBox = document.getElementById("inputBox");
     const gpuToggle = document.getElementById("gpuToggle");
+    const gpuToggleText = document.getElementById("gpuToggleText");
+
+    let webGpuSupported = !!navigator.gpu;
+    if (webGpuSupported) {
+        try {
+            cachedAdapter = await navigator.gpu.requestAdapter();
+            if (!cachedAdapter) {
+                webGpuSupported = false;
+            }
+        } catch (e) {
+            cachedAdapter = null;
+            webGpuSupported = false;
+        }
+    }
+    gpuToggle.disabled = !webGpuSupported;
+    if (!webGpuSupported && gpuToggleText) {
+        gpuToggleText.textContent = "WebGPU (not supported on this browser)";
+    }
+    gpuToggle.checked = webGpuSupported ? (fragmentState.gpu ?? isLocalhost) : false;
 
     const exampleSources = {
         disco: `filter disco ()
@@ -436,8 +457,6 @@ end
 
     inputBox.value = fragmentState.script ?? exampleSources.spiral;
 
-    gpuToggle.checked = fragmentState.gpu ?? isLocalhost;
-
     writeStateToFragment({ script: inputBox.value, gpu: gpuToggle.checked });
 
     void render();
@@ -459,11 +478,13 @@ end
         writeStateToFragment({ script: inputBox.value, gpu: gpuToggle.checked });
     });
 
-    gpuToggle.addEventListener("change", () => {
-        writeStateToFragment({ script: inputBox.value, gpu: gpuToggle.checked });
-        // Can't use WebGPU and 2d contextes at the same time.
-        window.location.reload();
-    });
+    if (webGpuSupported) {
+        gpuToggle.addEventListener("change", () => {
+            writeStateToFragment({ script: inputBox.value, gpu: gpuToggle.checked });
+            // Can't use WebGPU and 2d contexes at the same time, so we need to reload the page.
+            window.location.reload();
+        });
+    }
 }
 
 run();
