@@ -10,6 +10,10 @@ fn FN_abs_quat(x: vec4<f32>) -> f32 {
     return x[0]*x[0] + x[1]*x[1] + x[2]*x[2] + x[3]*x[3];
 }
 
+fn sqrt(x: f32) -> f32 {
+    return x ** 0.5;
+}
+
 fn FN___mod(x: f32, y: f32) -> f32 {
     return x % y;
 }

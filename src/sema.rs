@@ -268,7 +268,10 @@ impl FunctionTable {
                 vec![FuncDef {
                     signature: FuncSignature {
                         name: name.to_string(),
-                        params: vec![func_param("x", Type::scalar()), func_param("y", Type::scalar())],
+                        params: vec![
+                            func_param("x", Type::scalar()),
+                            func_param("y", Type::scalar()),
+                        ],
                         ret: Type::Int,
                     },
                 }],
@@ -336,6 +339,17 @@ impl FunctionTable {
                 ret: Type::scalar(),
             },
         });
+
+        fns.insert(
+            "sqrt".to_string(),
+            vec![FuncDef {
+                signature: FuncSignature {
+                    name: "sqrt".to_string(),
+                    params: vec![func_param("x", Type::scalar())],
+                    ret: Type::scalar(),
+                },
+            }],
+        );
 
         let mut def_bool_binary = |name: &str| {
             fns.insert(
